@@ -10,7 +10,7 @@ public with an append-only audit trail. Runs on a laptop CPU. No AI API key.
 The neural network is written from first principles in NumPy.
 
 [Live site + growth visualisation](https://evoml-lab.higgsfield.app) ·
-[5-minute pitch video](https://cdn.pika.art/v2/files/agent/94a97e44-40da-40ab-bcc0-e3c02c4f22f0/d60ee74c2a928a863ce0f3a458f3c63ba65030b6d76a62e76a1221327d472249) ·
+[5-minute pitch video](https://cdn.pika.art/v2/files/agent/3d269d9f-8218-41c2-b660-99e4731710ba/output.mp4) ·
 [Results](docs/RESULTS.md) · [Architecture](docs/ARCHITECTURE.md) ·
 [How evolution works](docs/EVOLUTION.md) · [Submission](docs/SUBMISSION.md)
 

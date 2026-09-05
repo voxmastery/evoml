@@ -5,7 +5,7 @@
 | Project | EvoML: a self-evolving prediction model with an honest scoreboard |
 | Repository | https://github.com/voxmastery/evoml |
 | Live site | https://evoml-lab.higgsfield.app (live growth visualisation, pitch, audit trail) |
-| Pitch video (5:00, cartoon, narrated, subtitled) | see README link |
+| Pitch video (5:00, cartoon, narrated, subtitled) | https://cdn.pika.art/v2/files/agent/3d269d9f-8218-41c2-b660-99e4731710ba/output.mp4 |
 | Track | Open Track |
 
 ## Objectives
