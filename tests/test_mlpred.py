@@ -135,7 +135,7 @@ def test_mutation_respects_bounds():
         assert 40 <= h["iters"] <= 400
     for _ in range(30):
         imm = random_genome(rng, exclude_kind="mlp")
-        assert imm["kind"] in ("logreg", "hgb")
+        assert imm["kind"] in ("logreg", "hgb", "net")
 
 
 def test_invented_genes_evaluate_and_apply():

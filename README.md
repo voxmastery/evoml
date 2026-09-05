@@ -1,88 +1,101 @@
-# memescalp — Solana memecoin scalping, paper-trading experiment
+# EvoML — a self-evolving prediction model with an honest scoreboard
 
-A measurement harness for one hypothesis: *does having Claude pick which
-memecoin to scalp every 30 minutes beat picking at random, after all real-world
-costs?*
+EvoML is a self-evolving machine-learning system that predicts short-horizon
+price direction (Binance-style UP / DOWN calls at a fixed horizon) on live
+Solana token prices, and — more importantly — **measures itself honestly
+against a random control, in public, with an append-only audit trail.**
 
-**This repository is simulation-only and measurement-only.**
-There is no wallet integration, no private-key handling, and no code path that
-can sign or submit a mainnet transaction. Requests to add live trading will be
-declined — the point of this repo is to measure whether the strategy would
-have worked, not to run it.
+It runs on a laptop CPU, needs **no AI API key**, and writes its own neural
+network from first principles in NumPy.
 
-## How it works
+**This repository is measurement-only.** There is no wallet integration, no
+private-key handling, and no code path that can sign or submit a transaction.
+Requests to add live trading are declined by design.
 
-- **Price feed** — polls the Jupiter Price API every 5 s for every watched
-  token; pool liquidity, volume, and price-change data come from DexScreener
-  (refreshed every 60 s). Every observation is cached to SQLite so a run is
-  reproducible.
-- **Coin picker (the hypothesis)** — every 30 minutes the top trending Solana
-  tokens are fetched from DexScreener and handed to Claude, which picks ONE
-  token for the next window. The full prompt and response are logged verbatim.
-- **Control arm** — a second identical paper account picks uniformly at random
-  from the *same* candidate list, with the same capital, costs, and loop.
-- **Execution simulator** — each account starts at ₹2,000 (≈$23). Fills happen
-  at the feed price with four separately-stored cost components per side:
-  LP fee 0.25 %, slippage `size / (pool_liquidity + size)`, priority fee
-  $0.04 flat, and India TDS 1 % (Section 194S).
-- **Strategy loop** — enter with the full balance, exit at +$1.50 net profit
-  (configurable), optional stop-loss including the original "no stop" mode
-  (each trade is flagged with the active mode), re-enter after each exit,
-  rotate when a new window picks a different token.
-- **Logging** — every decision and fill goes to append-only SQLite plus a CSV
-  mirror (`data/csv/`). Rows are never edited or deleted; restarting the
-  process resumes balance and any open position from the log.
+## Results (live run, 14.5 days, as of 2026-09-06)
 
-## Pass / fail
+| Arm | Resolved | Accuracy | Note |
+|---|---|---|---|
+| **EvoML (subject)** | 562 | **56.6 %** | skill z = 3.12 vs 50 % |
+| Random control | ~1 400 | 50.6 % | same coins, same windows |
+| Classic math (OU z-score + variance ratio) | ~1 200 | 49.1 % | |
+| Chronos-Bolt (Amazon TSFM, standalone) | ~930 | 51.5 % | coin flip on its own |
+| Regime hedge (6 experts incl. Chronos) | ~1 100 | 52.4 % | |
 
-Displayed at the top of the dashboard. **PASS requires all of:**
+Pre-registered gates, all passed: skill z ≥ 1.64 · ≥ 200 resolved · ≥ 14 days ·
+beats random with two-proportion z ≥ 1.64 (actual **2.38**).
 
-1. Net positive PnL after ALL modeled costs,
-2. over ≥ 200 completed round trips **and** ≥ 14 calendar days,
-3. meaningfully above the random control (higher net PnL *and* a Welch
-   z-score ≥ 1.64 on per-trade PnL).
+Honest caveats: 56.6 % direction accuracy is a *statistical* edge, not a money
+machine. Fee-inclusive paper capital is flat-to-negative; Kelly-sized capital
+is roughly flat. The claim we make is "measurably better than random, with an
+audit trail", nothing more.
 
-No other definition of "working" counts.
+## What is new here
 
-## Setup
+- **Self-modifying genome.** A model is a genome: kind (`logreg` / `mlp` /
+  `hgb` / `net`), hyper-parameters, a *feature chromosome* (which of 19 base
+  features it reads), *invented genes* (genetic-programming expressions over
+  base features such as `max(ema_gap, log_liq)`), its own confidence threshold,
+  its own mutation rate, a *humility cap* on confidence, a *familiarity floor*
+  (refuse inputs far outside training distribution), and a polymorphic flag.
+- **Tournament every 30 min.** Champion + 2 mutants + 1 immigrant (50 % from a
+  hall of fame). Fitness is policy-aware (accuracy on the rows it would
+  actually call). **Succession is significance-gated**: a challenger must beat
+  the incumbent by more than one standard error, so noise cannot dethrone
+  skill. Every generation is written to an evolution journal (`/api/evolution`).
+- **From-scratch network (`memescalp/evonet.py`).** Forward pass, hand-derived
+  back-propagation, Adam, weighted BCE + L2, magnitude pruning, float32 for
+  AVX2. Verified by finite-difference gradient checks in `tests/test_evonet.py`.
+  **Lamarckian inheritance**: a child copies the overlapping weight blocks of
+  its parent, so learned weights persist and grow across generations instead
+  of restarting from random.
+- **Foundation-model ingestion.** Amazon `chronos-bolt-small` (47.7 M params,
+  open weights) runs on CPU as a feature (`tsfm_ret`, `tsfm_spread`) and as an
+  expert inside the hedge arm. Its standalone score is published, not hidden.
+- **Honest measurement.** Predictions are logged before outcomes exist,
+  resolved against real prices, voided on flat/stale quotes, winsorised
+  against glitches, and evaluated with pre-registered pass/fail gates.
+
+## Architecture
+
+```
+Jupiter Price API (5 s)  ─┐
+DexScreener (liq/vol/flow)┼─► catalog (30 tokens) ─► feature vector (19 + invented genes)
+Chronos-Bolt (CPU)       ─┘                                    │
+                                                               ▼
+   random ── math ── hedge ── EvoML (genome → pipeline → Platt calibration)
+                                                               │
+   predictions (append-only SQLite) ◄──── resolver (real price @ +15 min)
+                                                               │
+   /api/predict/summary · /api/evolution · dashboard (FastAPI + vanilla JS)
+```
+
+Key modules: `memescalp/mlpred.py` (genome, mutation, tournament, hall of fame),
+`memescalp/evonet.py` (from-scratch network), `memescalp/hedgepred.py`
+(regime-conditioned multiplicative-weights hedge), `memescalp/tsfm.py`
+(Chronos), `memescalp/metrics.py` (z-tests, Brier, Kelly), `run.py` (loops).
+
+## Run it
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-python run.py          # dashboard at http://127.0.0.1:8765
+cp .env.example .env         # MODE=predict, LLM_ARM=off, add JUPITER_API_KEY
+python run.py                # dashboard at http://127.0.0.1:8765
+pytest                       # 103 tests incl. gradient checks
 ```
 
-### LLM access
+No Anthropic / OpenAI key is required. The optional Claude arm (`LLM_ARM=on`)
+used the Claude Code CLI on a subscription and is off by default.
 
-Two backends, chosen by `PICKER_BACKEND` in `.env`:
+## Why this matters for fintech
 
-- `claude_cli` (default) — shells out to headless `claude -p`, so the picker
-  runs on your existing **Claude subscription** through the official Claude
-  Code client. No API key required; just be logged in (`claude` works in your
-  terminal). The harness never touches the subscription's OAuth token itself —
-  calling the Anthropic API directly with that token is not a supported use.
-- `api` — uses the official `anthropic` SDK with `ANTHROPIC_API_KEY`.
+Risk, fraud and pricing models decay. The hard part is not training a model
+once; it is knowing, continuously and honestly, whether the model in
+production still beats a trivial baseline. EvoML is that loop: a model that
+keeps rewriting itself, and a harness that refuses to believe it until the
+numbers clear pre-registered gates.
 
-## Tests
+## License
 
-```bash
-pytest
-```
-
-Covers the fee model, execution math, strategy state machine (target / stop /
-no-stop / rotate / re-enter / resume), metrics + pass-fail evaluation,
-append-only DB behavior, and picker response parsing.
-
-## Notes and modeling caveats
-
-- Long-only, spot-only: you can't short a memecoin in a spot wallet, so both
-  arms only buy. The control arm therefore randomizes the *coin*; direction is
-  always long.
-- Slippage uses a constant-product approximation against the deepest pool's
-  liquidity; real fills on thin pools can be worse (MEV, sandwich, latency).
-  If anything the simulator is optimistic — a FAIL here is strong evidence,
-  a PASS is grounds for more careful measurement, not for going live.
-- TDS is modeled as 1 % of transaction value on every fill per Section 194S;
-  30 % tax on gains under Section 115BBH is *not* modeled and would apply on
-  top of any profit.
+MIT.

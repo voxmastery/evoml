@@ -28,6 +28,7 @@ import time
 
 from .catalog import CatalogEntry
 from .db import Database
+from .evonet import EvoNet, NetPipeline
 from .indicators import ema, one_minute_closes
 from .mathpred import signal_for, variance_ratio_2, zscore_20
 from .micro import MicroFeatures, micro_features
@@ -314,6 +315,11 @@ def genome_label(g: dict) -> str:
     if kind == "logreg":
         return (f"logreg(C={g.get('C', 0.5):g})"
                 + _genome_suffix(g))
+    if kind == "net":
+        return (f"net{'x'.join(str(h) for h in g.get('hidden', [16, 8]))}"
+                f"({g.get('act', 'tanh')},lr={g.get('lr', 3e-3):g}"
+                f"{',p=' + format(g['prune'], '.1f') if g.get('prune') else ''})"
+                + _genome_suffix(g))
     if kind == "mlp":
         return (f"mlp{'x'.join(str(h) for h in g.get('hidden', [16, 8]))}"
                 f"(a={g.get('alpha', 1e-4):g})" + _genome_suffix(g))
@@ -342,6 +348,16 @@ def genome_to_pipeline(g: dict):
     from sklearn.pipeline import make_pipeline
     from sklearn.preprocessing import StandardScaler
     kind = g["kind"]
+    if kind == "net":
+        # Our own network, written from first principles (see evonet.py).
+        n_in = (len(g.get("features", list(range(NUM_FEATURES))))
+                + len(g.get("synth", [])))
+        net = EvoNet(n_in,
+                     hidden=[int(h) for h in g.get("hidden", [16, 8])],
+                     act=g.get("act", "tanh"), lr=float(g.get("lr", 3e-3)),
+                     l2=float(g.get("l2", 1e-4)), epochs=int(g.get("epochs", 40)),
+                     prune=float(g.get("prune", 0.0)))
+        return NetPipeline(net), "sample_weight"
     if kind == "logreg":
         model = LogisticRegression(max_iter=1000, C=float(g.get("C", 0.5)))
         wkey = "logisticregression__sample_weight"
@@ -360,6 +376,30 @@ def genome_to_pipeline(g: dict):
 
 def _mutate_hyper(g: dict, rng: _random.Random) -> None:
     kind = g["kind"]
+    if kind == "net":
+        hidden = [int(h) for h in g.get("hidden", [16, 8])]
+        op = rng.choice(["grow", "shrink", "add", "drop", "lr", "l2", "act",
+                         "prune", "epochs"])
+        if op == "grow":
+            i = rng.randrange(len(hidden)); hidden[i] = min(64, hidden[i] * 2)
+        elif op == "shrink":
+            i = rng.randrange(len(hidden)); hidden[i] = max(4, hidden[i] // 2)
+        elif op == "add" and len(hidden) < 3:
+            hidden.append(max(4, hidden[-1] // 2))
+        elif op == "drop" and len(hidden) > 1:
+            hidden.pop()
+        elif op == "lr":
+            g["lr"] = min(3e-2, max(1e-4, g.get("lr", 3e-3) * rng.choice([0.5, 2.0])))
+        elif op == "l2":
+            g["l2"] = min(1e-1, max(1e-6, g.get("l2", 1e-4) * rng.choice([0.3, 3.0])))
+        elif op == "act":
+            g["act"] = "relu" if g.get("act", "tanh") == "tanh" else "tanh"
+        elif op == "prune":
+            g["prune"] = min(0.5, max(0.0, g.get("prune", 0.0) + rng.choice([-0.1, 0.1])))
+        else:
+            g["epochs"] = min(120, max(10, int(g.get("epochs", 40) * rng.choice([0.5, 1.5]))))
+        g["hidden"] = hidden
+        return
     if kind == "logreg":
         g["C"] = min(10.0, max(0.01, g.get("C", 0.5) * rng.choice([0.5, 2.0])))
     elif kind == "mlp":
@@ -445,9 +485,13 @@ def mutate_genome(g: dict, rng: _random.Random,
 
 
 def random_genome(rng: _random.Random, exclude_kind: str | None = None) -> dict:
-    kinds = [k for k in ("logreg", "mlp", "hgb") if k != exclude_kind]
+    kinds = [k for k in ("logreg", "mlp", "hgb", "net") if k != exclude_kind]
     kind = rng.choice(kinds)
-    if kind == "logreg":
+    if kind == "net":
+        g = {"kind": "net", "hidden": rng.choice([[16, 8], [32, 16], [24, 12, 6]]),
+             "act": rng.choice(["tanh", "relu"]), "lr": rng.choice([1e-3, 3e-3, 1e-2]),
+             "l2": rng.choice([1e-5, 1e-4, 1e-3]), "epochs": 40, "prune": 0.0}
+    elif kind == "logreg":
         g = {"kind": "logreg", "C": rng.choice([0.1, 0.5, 2.0])}
     elif kind == "mlp":
         g = {"kind": "mlp",
@@ -488,6 +532,7 @@ class MLForecaster:
         self._platt = None            # (a, b): p' = sigmoid(a * logit(p) + b)
         self._genome: dict | None = None
         self._pipes: dict | None = None
+        self._parent_net: EvoNet | None = None
         self._fam: tuple[list[float], list[float]] | None = None
         self._base_thr: float = MIN_CALL_PROB
         self.n_train = 0
@@ -588,6 +633,10 @@ class MLForecaster:
                 Xc_m = [apply_genome(gen, r) for r in Xc]
                 Xh_m = [apply_genome(gen, r) for r in Xh]
                 kwargs = {weight_key: weights} if weight_key else {}
+                # Lamarckian inheritance: a from-scratch net child starts from
+                # the champion's learned weights and keeps learning.
+                if isinstance(pipe, NetPipeline) and self._parent_net is not None:
+                    pipe.net.inherit(self._parent_net)
                 pipe.fit(Xf_m, yf, **kwargs)
                 pipes = {"global": pipe}
                 if gen.get("poly"):
@@ -650,6 +699,8 @@ class MLForecaster:
             succession = "held"
         self._pipes, self._platt = fitted[champion]
         self._pipeline = self._pipes["global"]
+        self._parent_net = (self._pipeline.net
+                            if isinstance(self._pipeline, NetPipeline) else None)
         self._fam = (fam_mu, fam_sd)
         self._genome = genomes[champion]
         self._base_thr = genomes[champion]["thr"]
