@@ -1,101 +1,231 @@
-# EvoML — a self-evolving prediction model with an honest scoreboard
+<div align="center">
 
-EvoML is a self-evolving machine-learning system that predicts short-horizon
-price direction (Binance-style UP / DOWN calls at a fixed horizon) on live
-Solana token prices, and — more importantly — **measures itself honestly
-against a random control, in public, with an append-only audit trail.**
+# EvoML
 
-It runs on a laptop CPU, needs **no AI API key**, and writes its own neural
-network from first principles in NumPy.
+**A self-evolving prediction model with an honest scoreboard.**
 
-**This repository is measurement-only.** There is no wallet integration, no
-private-key handling, and no code path that can sign or submit a transaction.
-Requests to add live trading are declined by design.
+Predicts 15-minute price direction on 30 live Solana tokens, rewrites its own
+genome every 30 minutes, and measures itself against a random control in
+public with an append-only audit trail. Runs on a laptop CPU. No AI API key.
+The neural network is written from first principles in NumPy.
 
-## Results (live run, 14.5 days, as of 2026-09-06)
+[Live site + growth visualisation](https://evoml-lab.higgsfield.app) ·
+[5-minute pitch video](https://cdn.pika.art/v2/files/agent/94a97e44-40da-40ab-bcc0-e3c02c4f22f0/d60ee74c2a928a863ce0f3a458f3c63ba65030b6d76a62e76a1221327d472249) ·
+[Results](docs/RESULTS.md) · [Architecture](docs/ARCHITECTURE.md) ·
+[How evolution works](docs/EVOLUTION.md) · [Submission](docs/SUBMISSION.md)
 
-| Arm | Resolved | Accuracy | Note |
-|---|---|---|---|
-| **EvoML (subject)** | 562 | **56.6 %** | skill z = 3.12 vs 50 % |
-| Random control | ~1 400 | 50.6 % | same coins, same windows |
-| Classic math (OU z-score + variance ratio) | ~1 200 | 49.1 % | |
-| Chronos-Bolt (Amazon TSFM, standalone) | ~930 | 51.5 % | coin flip on its own |
-| Regime hedge (6 experts incl. Chronos) | ~1 100 | 52.4 % | |
+![tests](https://img.shields.io/badge/tests-103%20passing-9ff0c4) ![python](https://img.shields.io/badge/python-3.12-blue) ![license](https://img.shields.io/badge/license-MIT-lightgrey) ![mode](https://img.shields.io/badge/mode-measurement--only-orange)
 
-Pre-registered gates, all passed: skill z ≥ 1.64 · ≥ 200 resolved · ≥ 14 days ·
-beats random with two-proportion z ≥ 1.64 (actual **2.38**).
+</div>
 
-Honest caveats: 56.6 % direction accuracy is a *statistical* edge, not a money
-machine. Fee-inclusive paper capital is flat-to-negative; Kelly-sized capital
-is roughly flat. The claim we make is "measurably better than random, with an
-audit trail", nothing more.
+> **Measurement-only by design.** There is no wallet integration, no
+> private-key handling, and no code path that can sign or submit a
+> transaction. Requests to add live trading are declined.
 
-## What is new here
+---
 
-- **Self-modifying genome.** A model is a genome: kind (`logreg` / `mlp` /
-  `hgb` / `net`), hyper-parameters, a *feature chromosome* (which of 19 base
-  features it reads), *invented genes* (genetic-programming expressions over
-  base features such as `max(ema_gap, log_liq)`), its own confidence threshold,
-  its own mutation rate, a *humility cap* on confidence, a *familiarity floor*
-  (refuse inputs far outside training distribution), and a polymorphic flag.
-- **Tournament every 30 min.** Champion + 2 mutants + 1 immigrant (50 % from a
-  hall of fame). Fitness is policy-aware (accuracy on the rows it would
-  actually call). **Succession is significance-gated**: a challenger must beat
-  the incumbent by more than one standard error, so noise cannot dethrone
-  skill. Every generation is written to an evolution journal (`/api/evolution`).
-- **From-scratch network (`memescalp/evonet.py`).** Forward pass, hand-derived
-  back-propagation, Adam, weighted BCE + L2, magnitude pruning, float32 for
-  AVX2. Verified by finite-difference gradient checks in `tests/test_evonet.py`.
-  **Lamarckian inheritance**: a child copies the overlapping weight blocks of
-  its parent, so learned weights persist and grow across generations instead
-  of restarting from random.
-- **Foundation-model ingestion.** Amazon `chronos-bolt-small` (47.7 M params,
-  open weights) runs on CPU as a feature (`tsfm_ret`, `tsfm_spread`) and as an
-  expert inside the hedge arm. Its standalone score is published, not hidden.
-- **Honest measurement.** Predictions are logged before outcomes exist,
-  resolved against real prices, voided on flat/stale quotes, winsorised
-  against glitches, and evaluated with pre-registered pass/fail gates.
+## Table of contents
 
-## Architecture
+1. [Results](#results)
+2. [What is new](#what-is-new)
+3. [How it works](#how-it-works)
+4. [Quick start](#quick-start)
+5. [Repository layout](#repository-layout)
+6. [Verify the numbers yourself](#verify-the-numbers-yourself)
+7. [Honest caveats](#honest-caveats)
+8. [Why this matters for fintech](#why-this-matters-for-fintech)
+9. [Roadmap](#roadmap)
+10. [License](#license)
 
+---
+
+## Results
+
+Live run, pre-registered gates, no backtests. Snapshot taken 2026-09-06 01:20 IST
+after 14.6 days. Numbers move as the run continues; the live site shows the
+current values.
+
+| Arm | Resolved calls | Accuracy | Note |
+|---|---:|---:|---|
+| **EvoML** (subject) | 572 | **56.3 %** | skill z = 3.01 against 50 % |
+| Random control | 1 387 | 50.5 % | same coins, same windows |
+| Regime hedge (6 experts incl. Chronos) | 1 635 | 52.6 % | multiplicative-weights hedge |
+| Classic math (OU z-score + variance ratio) | 1 622 | 49.3 % | 1930 / 1988 textbook signals |
+| Chronos-Bolt alone (Amazon, 47.7 M params) | ~930 | 51.5 % | a coin flip on its own |
+
+Pre-registered pass/fail gates, all passed:
+
+| Gate | Threshold | Actual |
+|---|---|---|
+| Skill against chance | z ≥ 1.64 | **3.01** |
+| Sample size | ≥ 200 resolved | **572** |
+| Duration | ≥ 14 days | **14.6** |
+| Beats random control | two-proportion z ≥ 1.64 | **2.32** |
+
+Full methodology, definitions and the reproduction procedure are in
+[docs/RESULTS.md](docs/RESULTS.md).
+
+## What is new
+
+- **The model owns its genome.** A genome holds the learner kind
+  (`net` / `mlp` / `hgb` / `logreg`), hyper-parameters, a *feature chromosome*
+  (which of 19 base features it reads), *invented genes* (genetic-programming
+  expressions over base features such as `max(ema_gap, log_liq)`), its own
+  confidence threshold, its own mutation rate, a *humility cap* on confidence,
+  a *familiarity floor* (abstain on inputs far outside training data), and a
+  polymorphic flag.
+- **A tournament every 30 minutes.** Champion + two mutants + one immigrant
+  (half the time drawn from a hall of fame). Fitness is policy-aware: accuracy
+  on the rows the model would actually call. **Succession is
+  significance-gated**: a challenger must beat the incumbent by more than one
+  standard error, so noise cannot dethrone skill. Every generation is written
+  to an evolution journal.
+- **A neural network written from scratch** (`memescalp/evonet.py`): forward
+  pass, hand-derived back-propagation, Adam, weighted cross-entropy with L2,
+  magnitude pruning, float32 throughout for AVX2. Verified by finite-difference
+  gradient checks in `tests/test_evonet.py`. **Lamarckian inheritance**: a
+  child copies its parent's overlapping weight blocks, so learned weights
+  persist and grow across generations instead of restarting from random.
+- **Foundation-model ingestion, measured honestly.** Amazon `chronos-bolt-small`
+  runs on CPU as two features and as a hedge expert. Its standalone score is
+  published rather than hidden.
+- **Honest measurement infrastructure.** Predictions are logged before the
+  outcome exists, resolved against real prices, voided on flat or stale
+  quotes, winsorised against glitches, and evaluated with gates fixed before
+  the run. A random control runs on identical coins and windows.
+
+## How it works
+
+```mermaid
+flowchart LR
+  J[Jupiter Price API<br/>5 s polls] --> C[Catalog<br/>30 live tokens]
+  D[DexScreener<br/>liquidity · volume · flow] --> C
+  C --> F[Feature vector<br/>19 base + invented genes]
+  T[Chronos-Bolt<br/>CPU, 54 ms/batch] --> F
+  F --> R[random arm]
+  F --> M[math arm]
+  F --> H[hedge arm]
+  F --> E[EvoML<br/>genome → pipeline → Platt]
+  E --> P[(predictions<br/>append-only SQLite)]
+  R --> P
+  M --> P
+  H --> P
+  P --> S[resolver<br/>real price at +15 min]
+  S --> P
+  P --> API[FastAPI<br/>/api/predict/* · /api/evolution]
+  API --> DB[dashboard]
+  API --> PUSH[tools/push_snapshot.py] --> SITE[evoml-lab.higgsfield.app]
+  E -. every 30 min .-> TOUR[tournament<br/>champion · mutants · immigrant]
+  TOUR --> E
 ```
-Jupiter Price API (5 s)  ─┐
-DexScreener (liq/vol/flow)┼─► catalog (30 tokens) ─► feature vector (19 + invented genes)
-Chronos-Bolt (CPU)       ─┘                                    │
-                                                               ▼
-   random ── math ── hedge ── EvoML (genome → pipeline → Platt calibration)
-                                                               │
-   predictions (append-only SQLite) ◄──── resolver (real price @ +15 min)
-                                                               │
-   /api/predict/summary · /api/evolution · dashboard (FastAPI + vanilla JS)
-```
 
-Key modules: `memescalp/mlpred.py` (genome, mutation, tournament, hall of fame),
-`memescalp/evonet.py` (from-scratch network), `memescalp/hedgepred.py`
-(regime-conditioned multiplicative-weights hedge), `memescalp/tsfm.py`
-(Chronos), `memescalp/metrics.py` (z-tests, Brier, Kelly), `run.py` (loops).
+Three loops run under one process (`run.py`):
 
-## Run it
+| Loop | Cadence | What it does |
+|---|---|---|
+| predict | every 5 min | builds features for 30 tokens, asks every arm for UP / DOWN / SKIP, logs before the outcome exists |
+| resolve | continuous | scores calls against the real price at +15 min, voids flat quotes, winsorises glitches |
+| retrain | every 30 min | runs the genome tournament, updates the hall of fame, writes the evolution journal |
+
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+[docs/EVOLUTION.md](docs/EVOLUTION.md).
+
+## Quick start
 
 ```bash
+git clone https://github.com/voxmastery/evoml && cd evoml
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env         # MODE=predict, LLM_ARM=off, add JUPITER_API_KEY
-python run.py                # dashboard at http://127.0.0.1:8765
-pytest                       # 103 tests incl. gradient checks
+pip install -r requirements.txt            # core
+pip install -r requirements-tsfm.txt       # optional: Chronos-Bolt on CPU
+cp .env.example .env                       # MODE=predict, LLM_ARM=off; add JUPITER_API_KEY
+python run.py                              # dashboard at http://127.0.0.1:8765
+pytest                                     # 103 tests, including gradient checks
 ```
 
-No Anthropic / OpenAI key is required. The optional Claude arm (`LLM_ARM=on`)
-used the Claude Code CLI on a subscription and is off by default.
+Run it as a service with `deploy/evoml.service`. To stream the model's live
+state to a public page, see `deploy/evoml-push.service` and
+`tools/push_snapshot.py`.
+
+No Anthropic or OpenAI key is required. An optional Claude arm exists
+(`LLM_ARM=on`, via the Claude Code CLI on a subscription) and is off by
+default; it was the original subject of the harness and is kept for
+comparison.
+
+## Repository layout
+
+```
+run.py                     process entry: predict / resolve / retrain loops + dashboard
+memescalp/                 package (name kept from the original scalping harness)
+  mlpred.py                EvoML: genome, mutation, invented genes, tournament, hall of fame
+  evonet.py                from-scratch NumPy network with inheritance and gradient checks
+  hedgepred.py             regime-conditioned multiplicative-weights hedge (6 experts)
+  mathpred.py              classic OU z-score / variance-ratio / EMA arm
+  tsfm.py                  Chronos-Bolt features on CPU
+  predictor.py             random arm, prediction records, resolution
+  metrics.py               z-tests, Brier, calibration, Kelly, capital curves, pass/fail
+  catalog.py, feed.py      token universe, Jupiter + DexScreener ingestion
+  db.py                    append-only SQLite (WAL): prices, predictions, resolutions, evolution
+  dashboard.py, static/    FastAPI JSON endpoints and the single-page dashboard
+  llm.py, picker.py, …     optional Claude arm and the legacy paper-trading simulator
+tools/push_snapshot.py     live snapshot pusher for the public site
+tests/                     103 tests (pytest)
+docs/                      results, architecture, evolution, submission, strategy
+deploy/                    systemd user units
+```
+
+## Verify the numbers yourself
+
+Everything the scoreboard shows is derived from append-only tables.
+
+```bash
+# resolved calls per arm and accuracy
+sqlite3 data/memescalp.db "SELECT p.arm, COUNT(*), AVG(r.correct) FROM predictions p
+  JOIN resolutions r ON r.prediction_id=p.id WHERE r.status='scored' GROUP BY p.arm;"
+
+# evolution journal: one row per generation
+sqlite3 data/memescalp.db "SELECT generation, champion, scores FROM evolution ORDER BY generation DESC LIMIT 5;"
+
+# JSON the dashboard uses
+curl -s localhost:8765/api/predict/summary | jq .pass_fail
+curl -s localhost:8765/api/evolution | jq '.lineage[:3]'
+```
+
+Predictions carry the timestamp they were made at and the horizon they will
+be scored at; resolutions are inserted later by the resolver and never
+updated. The pass/fail thresholds live in `.env` and `memescalp/metrics.py`
+and were fixed before the run started.
+
+## Honest caveats
+
+- A 56 % directional edge is a **statistical** result, not a money machine.
+  Fee-inclusive paper capital is flat; Kelly-sized capital is roughly flat.
+  The claim is "measurably better than random, with an audit trail", nothing
+  more.
+- Confidence was over-stated early in the run (calls above 0.70 were only
+  48 % right). Platt calibration, a humility gene, and policy-aware fitness
+  fixed the inversion; the Brier score is published on the dashboard.
+- One 14-day window on one market regime. The harness is built to keep
+  running; a replication window is the next step.
+- The Claude arm was stopped once it was clear it added cost without skill.
+  Its rows remain in the ledger.
 
 ## Why this matters for fintech
 
 Risk, fraud and pricing models decay. The hard part is not training a model
 once; it is knowing, continuously and honestly, whether the model in
-production still beats a trivial baseline. EvoML is that loop: a model that
-keeps rewriting itself, and a harness that refuses to believe it until the
-numbers clear pre-registered gates.
+production still beats a trivial baseline, and letting it rewrite itself when
+it does not. EvoML is that loop: a model that keeps evolving, and a harness
+that refuses to believe it until the numbers clear gates that were written
+down in advance. The market data is the test bench; the loop is the product.
+
+## Roadmap
+
+- Replication window and per-regime reporting.
+- Second test bench: the same genome tournament on a public fraud-detection
+  dataset with a random control, to show the loop transfers to fintech risk.
+- Population-level diversity pressure (novelty search) and speciation.
+- Export of the evolution journal as a signed, verifiable audit log.
 
 ## License
 
-MIT.
+MIT. See [LICENSE](LICENSE).

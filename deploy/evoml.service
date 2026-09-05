@@ -1,0 +1,16 @@
+# systemd user unit for the experiment. Install with:
+#   cp deploy/evoml.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now evoml
+#   loginctl enable-linger $USER   # keep it running after logout
+[Unit]
+Description=EvoML prediction experiment + dashboard
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/evoml
+ExecStart=%h/evoml/.venv/bin/python run.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

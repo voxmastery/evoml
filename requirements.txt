@@ -1,7 +1,12 @@
+# Core runtime (prediction experiment, dashboard, EvoML)
 fastapi>=0.110
 uvicorn>=0.29
 httpx>=0.27
-anthropic>=0.40
 python-dotenv>=1.0
-pytest>=8.0
+numpy>=1.26
 scikit-learn>=1.4
+pytest>=8.0
+
+# Optional: Claude arm (off by default, LLM_ARM=off). Uses the Claude Code CLI
+# on a subscription; the SDK is only needed for PICKER_BACKEND=api.
+anthropic>=0.40

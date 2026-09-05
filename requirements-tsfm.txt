@@ -1,0 +1,5 @@
+# Optional: Amazon Chronos-Bolt foundation model as a feature + hedge expert.
+# CPU-only torch is enough (about 54 ms per batch on a laptop).
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.2
+chronos-forecasting>=1.4

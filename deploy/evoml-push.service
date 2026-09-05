@@ -1,0 +1,16 @@
+# Optional: stream a live snapshot of the model to the public site every 20 s.
+# Needs EVOML_INGEST_KEY (shared secret with the site) in an env file:
+#   mkdir -p ~/.config/evoml && echo EVOML_INGEST_KEY=... > ~/.config/evoml/push.env
+[Unit]
+Description=EvoML live snapshot pusher
+After=evoml.service
+
+[Service]
+WorkingDirectory=%h/evoml
+EnvironmentFile=%h/.config/evoml/push.env
+ExecStart=%h/evoml/.venv/bin/python tools/push_snapshot.py
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=default.target
