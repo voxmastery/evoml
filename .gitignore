@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+data/
+data-archive*/
+data_run.log
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.db
+*.db-wal
+*.db-shm
+.cursor/

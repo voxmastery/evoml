@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>memescalp — prediction experiment</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f1218; --panel: #171c26; --line: #262d3b; --text: #dde3ee;
+    --muted: #8b94a7; --green: #3ecf8e; --red: #ff6b6b; --amber: #ffb454;
+    --llm: #6ea8fe; --rnd: #b98ff5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 system-ui, sans-serif; padding: 18px; }
+  h1 { font-size: 18px; margin: 0; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr); margin-top: 14px; }
+  .panel { background: var(--panel); border: 1px solid var(--line);
+           border-radius: 10px; padding: 14px 16px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+              color: var(--muted); margin: 0 0 10px; }
+  .span12 { grid-column: span 12; } .span6 { grid-column: span 6; }
+  @media (max-width: 900px) { .span6 { grid-column: span 12; } }
+  .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px;
+            background: var(--panel); border: 1px solid var(--line);
+            border-radius: 10px; padding: 12px 16px; margin-top: 12px; }
+  .statuspill { display: inline-flex; align-items: center; gap: 8px;
+                padding: 5px 12px; border-radius: 999px; font-weight: 600;
+                font-size: 12px; letter-spacing: .05em; }
+  .running { background: rgba(62,207,142,.12); color: var(--green); }
+  .pausedp { background: rgba(255,180,84,.12); color: var(--amber); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .running .dot { animation: pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  #timer { font: 700 26px/1 ui-monospace, monospace; letter-spacing: .03em; }
+  .timerlab { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+  button { border: 0; border-radius: 8px; padding: 9px 22px; font: 600 13px system-ui;
+           cursor: pointer; color: #0c0f14; }
+  #btnStart { background: var(--green); }
+  #btnStart.pause { background: var(--amber); }
+  #btnReset { background: transparent; color: var(--red); border: 1px solid var(--red); }
+  #btnReset.arm { background: var(--red); color: #fff; }
+  button:disabled { opacity: .4; cursor: default; }
+  .spacer { flex: 1; }
+  .verdict { font-size: 26px; font-weight: 700; }
+  .pass { color: var(--green); } .fail { color: var(--red); }
+  .crit { margin: 10px 0 0; }
+  .crit .row { display: flex; justify-content: space-between; font-size: 13px; }
+  .ok { color: var(--green); } .no { color: var(--amber); }
+  .bar { height: 6px; background: var(--line); border-radius: 4px; margin-top: 4px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--llm); border-radius: 4px; transition: width .6s; }
+  .bar.done > i { background: var(--green); }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; }
+  td:first-child, th:first-child { text-align: left; }
+  .llm { color: var(--llm); } .rnd { color: var(--rnd); }
+  .hdg { color: #e06c9f; } .mth { color: #58c1b2; }
+  .mlc { color: #ffb454; }
+  .pos { color: var(--green); } .neg { color: var(--red); }
+  canvas.chart { width: 100%; height: 220px; display: block; }
+  .small { font-size: 12px; color: var(--muted); }
+  pre { white-space: pre-wrap; font-size: 12px; color: var(--muted); margin: 0;
+        max-height: 340px; overflow-y: auto; }
+  .bignum { font: 700 30px ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<h1>memescalp — memecoin prediction experiment</h1>
+<div class="sub">Prediction skill only — nothing is bought or sold, real or simulated.
+  Claude calls UP/DOWN vs a coin-flip control; accuracy is scored against actual prices.
+  <span id="cfg"></span></div>
+
+<div class="topbar">
+  <span class="statuspill pausedp" id="status"><span class="dot"></span><span id="statusText">…</span></span>
+  <div>
+    <div class="timerlab">experiment running for</div>
+    <div id="timer">—</div>
+  </div>
+  <div class="spacer"></div>
+  <button id="btnStart">Start</button>
+  <button id="btnReset">Reset</button>
+</div>
+
+<div class="grid">
+  <div class="panel span6">
+    <h2>Pass / Fail — prediction skill, nothing else</h2>
+    <div class="verdict" id="verdict">…</div>
+    <div id="criteria"></div>
+  </div>
+
+  <div class="panel span6">
+    <h2>Scoreboard</h2>
+    <div style="display:flex;gap:26px;flex-wrap:wrap">
+      <div><div class="small llm">Claude accuracy</div><div class="bignum" id="accLlm">—</div></div>
+      <div><div class="small mth">Classical math</div><div class="bignum" id="accMath">—</div></div>
+      <div><div class="small mlc">ML (learning)</div><div class="bignum" id="accMl">—</div></div>
+      <div><div class="small hdg">Hedge (RCH)</div><div class="bignum" id="accHedge">—</div></div>
+      <div><div class="small rnd">Random accuracy</div><div class="bignum" id="accRnd">—</div></div>
+      <div><div class="small">Coin-flip baseline</div><div class="bignum" style="color:var(--muted)">50%</div></div>
+      <div><div class="small">Pending horizons</div><div class="bignum" id="pending">—</div></div>
+    </div>
+    <table id="arms" style="margin-top:12px"></table>
+  </div>
+
+  <div class="panel span6">
+    <h2>Running accuracy (%) — resolved predictions</h2>
+    <canvas id="accChart" class="chart" height="220"></canvas>
+    <div class="small"><span class="llm">■ Claude</span> &nbsp;<span class="mth">■ Classical math
+      (OU 1930 / variance-ratio 1988 / EMA)</span> &nbsp;<span class="rnd">■ Random control</span>
+      &nbsp;· dashed line = 50% coin flip</div>
+  </div>
+
+  <div class="panel span6">
+    <h2>Cumulative hypothetical return (%, frictionless)</h2>
+    <canvas id="retChart" class="chart" height="220"></canvas>
+    <div class="small">Sum of signed moves if each call were followed with a fixed stake — an
+      upper bound; real trading costs would subtract ~2-3% per round trip.</div>
+  </div>
+
+  <div class="panel span12">
+    <h2>Capital growth — ₹2,000 ($22.99) compounded through every resolved call</h2>
+    <canvas id="capChart" class="chart" height="220"></canvas>
+    <div class="small"><span class="llm">■ Claude</span> &nbsp;<span class="mth">■ Classical math</span>
+      &nbsp;<span class="rnd">■ Random control</span> &nbsp;· dashed line = starting capital ·
+      frictionless (no fees/slippage) — an upper bound on what following each arm would have grown to.</div>
+  </div>
+
+  <div class="panel span6">
+    <h2>Kelly-sized capital — betting only when a trailing edge exists</h2>
+    <canvas id="kellyChart" class="chart" height="220"></canvas>
+    <div class="small">Half-Kelly fraction from each arm's trailing 30-call win rate (Kelly 1956),
+      capped at 25% of capital, zero until 10 outcomes exist. A flat line means Kelly's verdict is
+      "no edge — don't bet". This is the fastest honest compounding possible for whatever edge is real.</div>
+  </div>
+
+  <div class="panel span6">
+    <h2>Calibration — does "60% confident" mean 60%? (Brier 1950)</h2>
+    <div style="display:flex;gap:30px;flex-wrap:wrap;margin-bottom:10px">
+      <div><div class="small llm">Claude Brier score</div><div class="bignum" id="brierLlm">—</div></div>
+      <div><div class="small mth">Math Brier score</div><div class="bignum" id="brierMath">—</div></div>
+      <div><div class="small">Uninformative baseline</div><div class="bignum" style="color:var(--muted)">0.250</div></div>
+    </div>
+    <table id="calibration"></table>
+    <div class="small">Lower Brier = better. Rows compare stated confidence with actual hit rate —
+      calibrated confidence is what makes Kelly sizing valid.</div>
+  </div>
+
+  <div class="panel span12">
+    <h2>Measured earn-rate — what each arm would generate in a real up/down market (1% fee, half-Kelly)</h2>
+    <table id="earn"></table>
+    <div class="small">Computed from each arm's last ≤200 scored calls at its live call rate.
+      "Bankroll for $1/min" inverts your target: the capital needed at CURRENT measured skill to
+      earn $60/hour. Below-breakeven skill = no bankroll size works; the fix is skill, not size.</div>
+  </div>
+
+  <div class="panel span12">
+    <h2>Live hot board — best coin right now <span class="small" id="liveTs"></span></h2>
+    <table id="live"></table>
+    <div class="small">Re-ranked every 5 seconds from raw feed ticks (the finest resolution public
+      data allows): live score = recent movement × tick persistence − round-trip cost − shallow-pool
+      penalty. This is the analyzer's recommendation of what's most active/tradable this moment;
+      the forecaster sees the same numbers.</div>
+  </div>
+
+  <div class="panel span12">
+    <h2>Prediction ledger</h2>
+    <table id="ledger"></table>
+  </div>
+
+  <div class="panel span12">
+    <h2>Token catalog — trending candidates ranked by metrics</h2>
+    <table id="catalog"></table>
+  </div>
+
+  <div class="panel span12">
+    <h2>EvoML lab notebook — self-experiments, one generation every 30 min</h2>
+    <div class="small" id="geneReport" style="margin-bottom:8px"></div>
+    <table id="lineage"></table>
+    <div class="small">Each row is one tournament: the champion genome (model kind, sensory
+      chromosome size, invented genes, call threshold, self-mutation rate) and its purged-holdout
+      score. Invented genes are expressions the model built from its own inputs and kept because
+      the lineage carrying them survived.</div>
+  </div>
+
+  <div class="panel span12">
+    <h2>Claude's evolving playbook — self-written lessons, updated every 30 min</h2>
+    <pre id="playbook">no playbook yet — written after 20 resolved calls</pre>
+  </div>
+
+  <div class="panel span12">
+    <h2>Latest Claude prediction (verbatim)</h2>
+    <pre id="latest">—</pre>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const pctf = v => (v * 100).toFixed(1) + "%";
+const usd = v => (v < 0 ? "-$" : "$") + Math.abs(v).toFixed(2);
+const STAKE = 22.99, COST_PER_TRIP = 2.9; // measured avg round-trip cost %
+let control = { paused: true, experiment_start: null, offset: 0 };
+let resetArmed = false, resetTimer = null;
+
+async function post(path) { return (await fetch(path, { method: "POST" })).json(); }
+$("btnStart").onclick = async () => {
+  $("btnStart").disabled = true;
+  await post(control.paused ? "/api/control/start" : "/api/control/pause");
+  await refresh();
+  $("btnStart").disabled = false;
+};
+$("btnReset").onclick = async () => {
+  if (!resetArmed) {
+    resetArmed = true;
+    $("btnReset").textContent = "Confirm reset?";
+    $("btnReset").classList.add("arm");
+    resetTimer = setTimeout(() => {
+      resetArmed = false; $("btnReset").textContent = "Reset";
+      $("btnReset").classList.remove("arm");
+    }, 5000);
+    return;
+  }
+  clearTimeout(resetTimer);
+  $("btnReset").textContent = "Resetting…"; $("btnReset").disabled = true;
+  try { await post("/api/control/reset"); } catch (e) {}
+  setTimeout(async function waitBack() {
+    try { await fetch("/api/predict/summary"); location.reload(); }
+    catch (e) { setTimeout(waitBack, 2000); }
+  }, 4000);
+};
+
+setInterval(() => {
+  if (!control.experiment_start) { $("timer").textContent = "not started"; return; }
+  let s = Math.max(0, Date.now() / 1000 - control.offset - control.experiment_start);
+  const d = Math.floor(s / 86400); s -= d * 86400;
+  const p = n => String(n).padStart(2, "0");
+  $("timer").textContent =
+    `${d}d ${p(Math.floor(s / 3600))}:${p(Math.floor(s % 3600 / 60))}:${p(Math.floor(s % 60))}`;
+}, 1000);
+
+function critRow(label, ok, detail, frac) {
+  const bar = frac == null ? "" :
+    `<div class="bar ${ok ? "done" : ""}"><i style="width:${Math.min(100, frac * 100).toFixed(1)}%"></i></div>`;
+  return `<div class="crit"><div class="row"><span>${label}</span>` +
+         `<span class="${ok ? "ok" : "no"}">${detail} ${ok ? "✓" : "…"}</span></div>${bar}</div>`;
+}
+
+function lineChart(canvasId, series, opts) {
+  const canvas = $(canvasId), dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = 220;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  const all = series.flatMap(s => s.data);
+  if (!all.length) { ctx.fillStyle = "#8b94a7"; ctx.fillText("No resolved predictions yet.", 12, 24); return; }
+  const xs = all.map(p => p[0]);
+  let ys = all.map(p => p[1]);
+  if (opts.baseline != null) ys = ys.concat([opts.baseline]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs, x0 + 1);
+  const pad = (Math.max(...ys) - Math.min(...ys)) * 0.1 + 0.5;
+  const y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
+  const X = t => 44 + (t - x0) / (x1 - x0) * (w - 59);
+  const Y = v => h - 22 - (v - y0) / (y1 - y0 || 1) * (h - 40);
+  ctx.strokeStyle = "#262d3b"; ctx.fillStyle = "#8b94a7"; ctx.font = "11px system-ui";
+  for (let i = 0; i <= 4; i++) {
+    const v = y0 + (y1 - y0) * i / 4, y = Y(v);
+    ctx.beginPath(); ctx.moveTo(44, y); ctx.lineTo(w - 15, y); ctx.stroke();
+    ctx.fillText(v.toFixed(1) + (opts.unit || ""), 2, y + 3);
+  }
+  if (opts.baseline != null) {
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = "#4a5468";
+    ctx.beginPath(); ctx.moveTo(44, Y(opts.baseline)); ctx.lineTo(w - 15, Y(opts.baseline)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  for (const s of series) {
+    if (!s.data.length) continue;
+    ctx.strokeStyle = s.color; ctx.lineWidth = 1.8; ctx.beginPath();
+    s.data.forEach((p, i) => i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])));
+    ctx.stroke();
+  }
+}
+
+function renderCatalog(cat) {
+  const rows = cat.catalog;
+  if (!rows.length) {
+    $("catalog").innerHTML = "<tr><td class='small'>No catalog yet — built each prediction window.</td></tr>";
+    return;
+  }
+  $("catalog").innerHTML =
+    "<tr><th>#</th><th>token</th><th>price</th><th>liquidity</th><th>24h volume</th>" +
+    "<th>turnover</th><th>1h</th><th>24h</th><th>vol 1m</th><th>score</th></tr>" +
+    rows.map(r => {
+      const turn = r.liquidity_usd > 0 ? (r.volume_h24 / r.liquidity_usd).toFixed(1) + "x" : "—";
+      const chg = v => `<span class="${v >= 0 ? "pos" : "neg"}">${v >= 0 ? "+" : ""}${v.toFixed(1)}%</span>`;
+      return `<tr><td>${r.rank}</td><td><b>${r.symbol}</b></td>` +
+        `<td>$${r.price_usd.toPrecision(4)}</td><td>$${Math.round(r.liquidity_usd).toLocaleString()}</td>` +
+        `<td>$${Math.round(r.volume_h24).toLocaleString()}</td><td>${turn}</td>` +
+        `<td>${chg(r.price_change_h1)}</td><td>${chg(r.price_change_h24)}</td>` +
+        `<td>${r.volatility_pct.toFixed(2)}%</td><td><b>${r.score.toFixed(1)}</b></td></tr>`;
+    }).join("");
+}
+
+async function refresh() {
+  const [summary, curves, ledger, latest, cat] = await Promise.all([
+    fetch("/api/predict/summary").then(r => r.json()),
+    fetch("/api/predict/curves").then(r => r.json()),
+    fetch("/api/predict/ledger").then(r => r.json()),
+    fetch("/api/predict/latest").then(r => r.json()),
+    fetch("/api/catalog").then(r => r.json()),
+  ]);
+
+  const pf = summary.pass_fail, ctl = summary.control, cfg = summary.config;
+  control = { paused: ctl.paused, experiment_start: ctl.experiment_start,
+              offset: Date.now() / 1000 - ctl.now };
+  $("statusText").textContent = ctl.paused ? "PAUSED" : "RUNNING";
+  $("status").className = "statuspill " + (ctl.paused ? "pausedp" : "running");
+  $("btnStart").textContent = ctl.paused ? "Start" : "Pause";
+  $("btnStart").className = ctl.paused ? "" : "pause";
+  $("cfg").textContent = `Prediction every ${cfg.predict_minutes} min, horizon ${cfg.horizon_minutes} min · verdict subject: ${summary.subject === "ml" ? "ML arm (Claude arm stopped)" : "Claude arm"}.`;
+
+  $("verdict").textContent = pf.overall ? "PASS" : "FAIL (so far)";
+  $("verdict").className = "verdict " + (pf.overall ? "pass" : "fail");
+  $("criteria").innerHTML =
+    critRow("1. Accuracy above coin flip (significant)", pf.skilled,
+            `${pctf(pf.accuracy)} , z=${pf.skill_z.toFixed(2)} (need ≥ ${pf.edge_z_min})`, null) +
+    critRow("2. Resolved predictions", pf.enough_predictions,
+            `${pf.resolved} / ${pf.min_predictions}`, pf.resolved / pf.min_predictions) +
+    critRow("3. Calendar days", pf.enough_days,
+            `${pf.days_elapsed.toFixed(1)} / ${pf.min_days}`, pf.days_elapsed / pf.min_days) +
+    critRow("4. Meaningfully above random control", pf.beats_control,
+            `${pctf(pf.accuracy)} vs ${pctf(pf.control_accuracy)}, z=${pf.edge_z.toFixed(2)}`, null);
+
+  const empty = { resolved: 0, correct: 0, accuracy: 0, avg_confidence: 0,
+                  cum_return_pct: 0, voids: 0 };
+  const a = summary.arms.llm, b = summary.arms.random,
+        m = summary.arms.math || empty, ml = summary.arms.ml || empty,
+        hg = summary.arms.hedge || empty;
+  $("accLlm").textContent = a.resolved ? pctf(a.accuracy) : "—";
+  $("accMath").textContent = m.resolved ? pctf(m.accuracy) : "—";
+  $("accMl").textContent = ml.resolved ? pctf(ml.accuracy) : "—";
+  $("accHedge").textContent = hg.resolved ? pctf(hg.accuracy) : "—";
+  $("accRnd").textContent = b.resolved ? pctf(b.accuracy) : "—";
+  $("pending").textContent = summary.pending;
+  const rows = [["", "Claude", "Math", "ML", "Hedge", "Random"]];
+  const line = (l, f) => rows.push([l, f(a), f(m), f(ml), f(hg), f(b)]);
+  line("Resolved / correct", x => `${x.resolved} / ${x.correct}`);
+  line("Calls / abstains", x => `${x.calls ?? "—"} / ${x.abstains ?? 0}`);
+  line("Capital now (from $22.99)", x => {
+    const c = x.capital ?? STAKE;
+    const d = c - (summary.start_capital ?? STAKE);
+    return `${usd(c)} (${d >= 0 ? "+" : ""}${usd(d)})`;
+  });
+  line("Kelly-sized capital", x => usd(x.kelly_capital ?? STAKE));
+  line("Brier score (lower = better)", x => x.brier == null ? "—" : x.brier.toFixed(3));
+  line("Avg confidence", x => x.resolved ? pctf(x.avg_confidence) : "—");
+  line("Cum. hypothetical return", x => `${x.cum_return_pct >= 0 ? "+" : ""}${x.cum_return_pct.toFixed(2)}%`);
+  line("≈ $ if followed, $23 stake, no costs", x => usd(STAKE * x.cum_return_pct / 100));
+  line("≈ $ after ~2.9%/trip real costs", x => usd(STAKE * (x.cum_return_pct - x.resolved * COST_PER_TRIP) / 100));
+  line("Voided (no data)", x => x.voids);
+  const armCls = ["", "llm", "mth", "mlc", "hdg", "rnd"];
+  $("arms").innerHTML = rows.map((r, i) =>
+    `<tr>${r.map((c, j) => i === 0
+      ? `<th class="${armCls[j] || ""}">${c}</th>` : `<td>${c}</td>`).join("")}</tr>`).join("");
+
+  const mathCurves = curves.math || {};
+  const mlCurves = curves.ml || {};
+  const hedgeCurves = curves.hedge || {};
+  const four = key => [
+    { data: curves.llm[key] || [], color: "#6ea8fe" },
+    { data: mathCurves[key] || [], color: "#58c1b2" },
+    { data: mlCurves[key] || [], color: "#ffb454" },
+    { data: hedgeCurves[key] || [], color: "#e06c9f" },
+    { data: curves.random[key] || [], color: "#b98ff5" },
+  ];
+  lineChart("accChart", four("accuracy"), { baseline: 50, unit: "%" });
+  lineChart("retChart", four("cum_return"), { baseline: 0, unit: "%" });
+  lineChart("capChart", four("capital"), { baseline: curves.start_capital ?? STAKE, unit: "" });
+  lineChart("kellyChart", four("kelly"), { baseline: curves.start_capital ?? STAKE, unit: "" });
+
+  const pb = summary.playbook;
+  if (pb) {
+    $("playbook").textContent =
+      `[updated ${new Date(pb.ts * 1000).toLocaleTimeString()}]\n${pb.response}`;
+  }
+
+  const cal = summary.calibration || {};
+  $("brierLlm").textContent = cal.llm && cal.llm.brier != null ? cal.llm.brier.toFixed(3) : "—";
+  $("brierMath").textContent = cal.math && cal.math.brier != null ? cal.math.brier.toFixed(3) : "—";
+  const calRows = [];
+  for (const [name, cls] of [["llm", "llm"], ["math", "mth"], ["ml", "mlc"]]) {
+    for (const b of (cal[name]?.bins || [])) {
+      calRows.push(`<tr><td class="${cls}">${name}</td><td>${b.label}</td><td>${b.n}</td>` +
+        `<td>${(b.avg_confidence * 100).toFixed(0)}%</td>` +
+        `<td class="${b.accuracy >= b.avg_confidence ? "pos" : "neg"}">${(b.accuracy * 100).toFixed(0)}%</td></tr>`);
+    }
+  }
+  $("calibration").innerHTML = calRows.length
+    ? "<tr><th>arm</th><th>stated confidence</th><th>n</th><th>avg stated</th><th>actual hit rate</th></tr>" + calRows.join("")
+    : "<tr><td class='small'>Needs resolved calls with varying confidence.</td></tr>";
+
+  $("ledger").innerHTML =
+    "<tr><th>predicted at</th><th>arm</th><th>token</th><th>call</th><th>conf</th>" +
+    "<th>price then</th><th>price at horizon</th><th>move</th><th>$ P/L</th><th>capital</th><th>result</th></tr>" +
+    ledger.ledger.map(r => {
+      const res = r.direction === "SKIP"
+        ? `<span class="small">abstained</span>`
+        : r.status === null
+        ? `<span class="small">pending ${new Date(r.horizon_end * 1000).toLocaleTimeString()}</span>`
+        : r.status === "void" || (r.status === "resolved" && r.return_pct === 0)
+        ? `<span class="no">void (no data)</span>`
+        : r.correct ? `<span class="pos">✓ correct</span>` : `<span class="neg">✗ wrong</span>`;
+      const move = r.return_pct == null ? "—"
+        : `<span class="${r.return_pct >= 0 ? "pos" : "neg"}">${r.return_pct >= 0 ? "+" : ""}${r.return_pct.toFixed(2)}%</span>`;
+      const pnl = r.usd_pnl == null ? "—"
+        : `<span class="${r.usd_pnl >= 0 ? "pos" : "neg"}">${r.usd_pnl >= 0 ? "+" : ""}${usd(r.usd_pnl)}</span>`;
+      const cap = r.capital_after == null ? "—" : usd(r.capital_after);
+      return `<tr><td>${new Date(r.ts * 1000).toLocaleTimeString()}</td>` +
+        `<td class="${{llm:"llm",math:"mth",ml:"mlc"}[r.arm] || "rnd"}">${r.arm}</td>` +
+        `<td>${r.symbol}</td><td><b>${r.direction || "—"}</b></td>` +
+        `<td>${(r.confidence * 100).toFixed(0)}%</td>` +
+        `<td>$${r.price_at ? r.price_at.toPrecision(4) : "—"}</td>` +
+        `<td>${r.price_end ? "$" + r.price_end.toPrecision(4) : "—"}</td>` +
+        `<td>${move}</td><td>${pnl}</td><td>${cap}</td><td>${res}</td></tr>`;
+    }).join("");
+
+  const p = latest.prediction;
+  if (p) {
+    $("latest").textContent =
+      `[${new Date(p.ts * 1000).toLocaleString()}] model=${p.model} backend=${p.backend}` +
+      ` call=${p.symbol} ${p.direction} conf=${p.confidence}\n\n--- PROMPT ---\n${p.prompt}` +
+      `\n\n--- RESPONSE ---\n${p.response}`;
+  }
+  renderCatalog(cat);
+
+  const earnRows = [];
+  for (const [name, cls] of [["llm","llm"],["math","mth"],["ml","mlc"],["hedge","hdg"],["random","rnd"]]) {
+    const e = (summary.arms[name] || {}).earn;
+    if (!e) continue;
+    if (!e.ready) {
+      earnRows.push(`<tr><td class="${cls}">${name}</td><td colspan="5" class="small">needs ${30 - e.n} more scored calls</td></tr>`);
+      continue;
+    }
+    const acc = `${(e.accuracy*100).toFixed(1)}% ±${(e.ci95*100).toFixed(1)}`;
+    const edge = `${(e.edge_per_call*100).toFixed(2)}%`;
+    const r23 = e.usd_per_hour["23"], r10k = e.usd_per_hour["10000"];
+    const need = e.bankroll_for_60_per_hour;
+    earnRows.push(`<tr><td class="${cls}">${name}</td><td>${acc}</td>` +
+      `<td class="${e.edge_per_call > 0 ? "pos" : "neg"}">${edge}</td>` +
+      `<td>${usd(r23)}/hr</td><td>${usd(r10k)}/hr</td>` +
+      `<td>${need == null ? '<span class="neg">below breakeven — impossible</span>' : "$" + Math.round(need).toLocaleString()}</td></tr>`);
+  }
+  $("earn").innerHTML =
+    "<tr><th>arm</th><th>accuracy (≤200 calls)</th><th>edge/call after fee</th>" +
+    "<th>$/hr @ $23</th><th>$/hr @ $10k</th><th>bankroll for $1/min</th></tr>" + earnRows.join("");
+}
+
+async function refreshEvolution() {
+  try {
+    const d = await fetch("/api/evolution").then(r => r.json());
+    const rep = Object.entries(d.gene_report || {}).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 6);
+    $("geneReport").innerHTML = rep.length
+      ? "Gene characteristics (corr. with outcome, latest read): " +
+        rep.map(([k, v]) => `<b>${k}</b> ${v >= 0 ? "+" : ""}${v.toFixed(3)}`).join(" · ")
+      : "gene report pending first generation";
+    $("lineage").innerHTML =
+      "<tr><th>when</th><th>gen</th><th>champion genome</th><th>holdout</th><th>senses</th>" +
+      "<th>invented genes</th><th>thr</th><th>mut rate</th></tr>" +
+      (d.lineage || []).map(r =>
+        `<tr><td>${new Date(r.ts * 1000).toLocaleTimeString()}</td><td>${r.generation}</td>` +
+        `<td>${r.champion}</td><td>${r.holdout == null ? "—" : (r.holdout * 100).toFixed(1) + "%"}</td>` +
+        `<td>${r.n_features}/19</td>` +
+        `<td class="small">${(r.synth || []).map(s => Array.isArray(s) ? s[0] + "(" + s.slice(1).join(",") + ")" : s).join(", ") || "—"}</td>` +
+        `<td>${r.thr == null ? "—" : r.thr.toFixed(2)}</td><td>${r.mut_rate == null ? "—" : r.mut_rate.toFixed(2)}</td></tr>`
+      ).join("");
+  } catch (e) {}
+}
+
+async function refreshLive() {
+  try {
+    const d = await fetch("/api/live").then(r => r.json());
+    $("liveTs").textContent = "· updated " + new Date(d.ts * 1000).toLocaleTimeString();
+    if (!d.board.length) {
+      $("live").innerHTML = "<tr><td class='small'>Warming up — needs ~30s of ticks.</td></tr>";
+      return;
+    }
+    const chg = v => `<span class="${v >= 0 ? "pos" : "neg"}">${v >= 0 ? "+" : ""}${v.toFixed(2)}%</span>`;
+    $("live").innerHTML =
+      "<tr><th>#</th><th>token</th><th>price</th><th>30s</th><th>60s</th><th>5m</th>" +
+      "<th>upticks</th><th>tick vol</th><th>liquidity</th><th>est cost</th><th>live score</th></tr>" +
+      d.board.slice(0, 10).map((r, i) => {
+        const hl = i === 0 ? " style='background:rgba(62,207,142,.10)'" : "";
+        return `<tr${hl}><td>${r.rank}</td><td><b>${r.symbol}</b>${i === 0 ? " 🔥" : ""}</td>` +
+          `<td>$${r.price_usd.toPrecision(4)}</td><td>${chg(r.ret_30s)}</td>` +
+          `<td>${chg(r.ret_60s)}</td><td>${chg(r.ret_300s)}</td>` +
+          `<td>${(r.uptick_ratio * 100).toFixed(0)}%</td><td>${r.micro_vol.toFixed(3)}%</td>` +
+          `<td>$${Math.round(r.liquidity_usd).toLocaleString()}</td>` +
+          `<td>${r.est_cost_pct.toFixed(2)}%</td><td><b>${r.live_score.toFixed(2)}</b></td></tr>`;
+      }).join("");
+  } catch (e) {}
+}
+
+refresh();
+refreshLive();
+refreshEvolution();
+setInterval(refresh, 10000);
+setInterval(refreshLive, 5000);
+setInterval(refreshEvolution, 60000);
+</script>
+</body>
+</html>

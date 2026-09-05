@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>memescalp — paper trading</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f1218; --panel: #171c26; --line: #262d3b; --text: #dde3ee;
+    --muted: #8b94a7; --green: #3ecf8e; --red: #ff6b6b; --amber: #ffb454;
+    --llm: #6ea8fe; --rnd: #b98ff5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 system-ui, sans-serif; padding: 18px; }
+  h1 { font-size: 18px; margin: 0; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr); margin-top: 14px; }
+  .panel { background: var(--panel); border: 1px solid var(--line);
+           border-radius: 10px; padding: 14px 16px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+              color: var(--muted); margin: 0 0 10px; }
+  .span12 { grid-column: span 12; } .span6 { grid-column: span 6; }
+  .span4 { grid-column: span 4; } .span8 { grid-column: span 8; }
+  @media (max-width: 900px) { .span6, .span4, .span8 { grid-column: span 12; } }
+
+  /* control bar */
+  .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px;
+            background: var(--panel); border: 1px solid var(--line);
+            border-radius: 10px; padding: 12px 16px; margin-top: 12px; }
+  .statuspill { display: inline-flex; align-items: center; gap: 8px;
+                padding: 5px 12px; border-radius: 999px; font-weight: 600;
+                font-size: 12px; letter-spacing: .05em; }
+  .running { background: rgba(62,207,142,.12); color: var(--green); }
+  .pausedp { background: rgba(255,180,84,.12); color: var(--amber); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .running .dot { animation: pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  #timer { font: 700 26px/1 ui-monospace, monospace; letter-spacing: .03em; }
+  .timerlab { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+  button { border: 0; border-radius: 8px; padding: 9px 22px; font: 600 13px system-ui;
+           cursor: pointer; color: #0c0f14; }
+  #btnStart { background: var(--green); }
+  #btnStart.pause { background: var(--amber); }
+  #btnReset { background: transparent; color: var(--red);
+              border: 1px solid var(--red); }
+  #btnReset.arm { background: var(--red); color: #fff; }
+  button:disabled { opacity: .4; cursor: default; }
+  .spacer { flex: 1; }
+
+  /* pass/fail */
+  .verdict { font-size: 26px; font-weight: 700; }
+  .pass { color: var(--green); } .fail { color: var(--red); }
+  .crit { margin: 10px 0 0; }
+  .crit .row { display: flex; justify-content: space-between; font-size: 13px; }
+  .ok { color: var(--green); } .no { color: var(--amber); }
+  .bar { height: 6px; background: var(--line); border-radius: 4px; margin-top: 4px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--llm); border-radius: 4px;
+             transition: width .6s; }
+  .bar.done > i { background: var(--green); }
+
+  /* position cards */
+  .poscard { display: flex; gap: 14px; align-items: center; }
+  .poscard .info { flex: 1; min-width: 0; }
+  .bigsym { font-size: 18px; font-weight: 700; }
+  .pnl { font: 700 20px ui-monospace, monospace; }
+  .pos { color: var(--green); } .neg { color: var(--red); }
+  .spark { width: 180px; height: 56px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  td, th { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; }
+  td:first-child, th:first-child { text-align: left; }
+  .llm { color: var(--llm); } .rnd { color: var(--rnd); }
+  canvas.chart { width: 100%; height: 240px; display: block; }
+  canvas.bars { width: 100%; height: 160px; display: block; }
+  .small { font-size: 12px; color: var(--muted); }
+  pre { white-space: pre-wrap; font-size: 12px; color: var(--muted); margin: 0;
+        max-height: 320px; overflow-y: auto; }
+
+  /* fee stacks */
+  .feearm { margin-bottom: 12px; }
+  .feestack { display: flex; height: 18px; border-radius: 5px; overflow: hidden;
+              background: var(--line); }
+  .feestack > i { display: block; height: 100%; }
+  .fl { background: #5b8def; } .fs { background: #e06c9f; }
+  .fp { background: #58c1b2; } .ft { background: #d9a03f; }
+  .legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--muted); }
+  .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
+</style>
+</head>
+<body>
+<h1>memescalp — Solana memecoin scalping, paper simulation</h1>
+<div class="sub">Simulation only. No wallet, no live orders. Fills priced by real Jupiter quotes. <span id="cfg"></span></div>
+
+<div class="topbar">
+  <span class="statuspill pausedp" id="status"><span class="dot"></span><span id="statusText">…</span></span>
+  <div>
+    <div class="timerlab">experiment running for</div>
+    <div id="timer">—</div>
+  </div>
+  <div class="spacer"></div>
+  <button id="btnStart">Start</button>
+  <button id="btnReset">Reset</button>
+</div>
+
+<div class="grid">
+  <div class="panel span6">
+    <h2>Pass / Fail — the only definition of "working"</h2>
+    <div class="verdict" id="verdict">…</div>
+    <div id="criteria"></div>
+  </div>
+
+  <div class="panel span6">
+    <h2>Open positions (live)</h2>
+    <div id="posCards"></div>
+  </div>
+
+  <div class="panel span12">
+    <h2>Equity — Claude picker vs random control (USD)</h2>
+    <canvas id="chart" class="chart" height="240"></canvas>
+    <div class="small"><span class="llm">■ Claude picker</span> &nbsp;
+      <span class="rnd">■ Random control</span></div>
+  </div>
+
+  <div class="panel span6">
+    <h2>PnL per round trip</h2>
+    <canvas id="pnlBars" class="bars" height="160"></canvas>
+    <div class="small"><span class="llm">■ Claude</span> &nbsp;<span class="rnd">■ Random</span>
+      &nbsp;— bars above zero are wins, below are losses</div>
+  </div>
+
+  <div class="panel span6">
+    <h2>Fees paid by component</h2>
+    <div id="feeStacks"></div>
+    <div class="legend">
+      <span><i class="sw fl"></i>LP</span><span><i class="sw fs"></i>Slippage</span>
+      <span><i class="sw fp"></i>Priority</span><span><i class="sw ft"></i>TDS 1%</span>
+    </div>
+  </div>
+
+  <div class="panel span12">
+    <h2>Token catalog — trending candidates ranked by scalpability metrics</h2>
+    <table id="catalog"></table>
+    <div class="small">score = turnover (log) + 1-min volatility − momentum extremes − est. round-trip
+      cost for our size − shallow-pool penalty (heuristic ranking; Claude sees all metrics and
+      decides itself). Rows highlighted = currently picked.</div>
+  </div>
+
+  <div class="panel span12">
+    <h2>Chart analyst — Claude's latest HOLD/EXIT prediction on the open position</h2>
+    <div id="analysisBadge" class="small">no analysis yet — runs every few minutes while a position is open</div>
+    <pre id="analysis" style="margin-top:8px"></pre>
+  </div>
+
+  <div class="panel span12">
+    <h2>Arms</h2>
+    <table id="arms"></table>
+  </div>
+
+  <div class="panel span12">
+    <h2>Recent fills</h2>
+    <table id="trades"></table>
+  </div>
+
+  <div class="panel span12">
+    <h2>Latest picker decision (verbatim)</h2>
+    <pre id="decision">—</pre>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const usd = v => (v == null ? "—" : (v < 0 ? "-$" : "$") + Math.abs(v).toFixed(2));
+const pct = v => (v * 100).toFixed(1) + "%";
+let control = { paused: true, experiment_start: null, offset: 0 };
+let resetArmed = false, resetTimer = null;
+
+/* ---------- controls ---------- */
+async function post(path) {
+  const r = await fetch(path, { method: "POST" });
+  return r.json();
+}
+$("btnStart").onclick = async () => {
+  $("btnStart").disabled = true;
+  await post(control.paused ? "/api/control/start" : "/api/control/pause");
+  await refresh();
+  $("btnStart").disabled = false;
+};
+$("btnReset").onclick = async () => {
+  if (!resetArmed) {
+    resetArmed = true;
+    $("btnReset").textContent = "Confirm reset?";
+    $("btnReset").classList.add("arm");
+    resetTimer = setTimeout(() => disarmReset(), 5000);
+    return;
+  }
+  clearTimeout(resetTimer);
+  $("btnReset").textContent = "Resetting…";
+  $("btnReset").disabled = true;
+  try { await post("/api/control/reset"); } catch (e) {}
+  // Process restarts (~10 s under systemd). Poll until it's back.
+  setTimeout(async function waitBack() {
+    try { await fetch("/api/summary"); location.reload(); }
+    catch (e) { setTimeout(waitBack, 2000); }
+  }, 4000);
+};
+function disarmReset() {
+  resetArmed = false;
+  $("btnReset").textContent = "Reset";
+  $("btnReset").classList.remove("arm");
+}
+
+/* ---------- timer ---------- */
+setInterval(() => {
+  if (!control.experiment_start) { $("timer").textContent = "not started"; return; }
+  let s = Math.max(0, Date.now() / 1000 - control.offset - control.experiment_start);
+  const d = Math.floor(s / 86400); s -= d * 86400;
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = Math.floor(s % 60);
+  const p = n => String(n).padStart(2, "0");
+  $("timer").textContent = `${d}d ${p(h)}:${p(m)}:${p(sec)}`;
+}, 1000);
+
+/* ---------- rendering ---------- */
+function critRow(label, ok, detail, frac) {
+  const bar = frac == null ? "" :
+    `<div class="bar ${ok ? "done" : ""}"><i style="width:${Math.min(100, frac * 100).toFixed(1)}%"></i></div>`;
+  return `<div class="crit"><div class="row"><span>${label}</span>` +
+         `<span class="${ok ? "ok" : "no"}">${detail} ${ok ? "✓" : "…"}</span></div>${bar}</div>`;
+}
+
+function posCard(name, cls, a) {
+  const p = a.position;
+  if (!p) return `<div class="poscard"><div class="info"><span class="bigsym ${cls}">${name}</span>
+    <span class="small"> — ${a.busted ? "HALTED (balance too low)" : "flat, waiting to enter"}</span></div></div>`;
+  const u = p.unrealized_pnl;
+  return `<div class="poscard">
+    <div class="info">
+      <span class="bigsym ${cls}">${p.symbol}</span>
+      <div class="small">${name} · entered ${new Date(p.entry_ts * 1000).toLocaleTimeString()}
+        · cost ${usd(p.entry_cost_usd)} · ${p.stop_mode}</div>
+      <div class="pnl ${u >= 0 ? "pos" : "neg"}">${u >= 0 ? "+" : ""}${usd(u)} <span class="small">if exited now (net)</span></div>
+    </div>
+    <canvas class="spark" data-mint="${p.mint}" width="180" height="56"></canvas>
+  </div>`;
+}
+
+async function drawSparks() {
+  for (const c of document.querySelectorAll(".spark")) {
+    try {
+      const d = await fetch("/api/prices/" + c.dataset.mint).then(r => r.json());
+      const pts = d.prices;
+      if (pts.length < 2) continue;
+      const ctx = c.getContext("2d");
+      ctx.clearRect(0, 0, c.width, c.height);
+      const ys = pts.map(p => p[1]);
+      const y0 = Math.min(...ys), y1 = Math.max(...ys);
+      const X = i => i / (pts.length - 1) * (c.width - 4) + 2;
+      const Y = v => c.height - 4 - (v - y0) / ((y1 - y0) || 1) * (c.height - 8);
+      ctx.strokeStyle = ys[ys.length - 1] >= ys[0] ? "#3ecf8e" : "#ff6b6b";
+      ctx.lineWidth = 1.5; ctx.beginPath();
+      pts.forEach((p, i) => i ? ctx.lineTo(X(i), Y(p[1])) : ctx.moveTo(X(i), Y(p[1])));
+      ctx.stroke();
+    } catch (e) {}
+  }
+}
+
+function drawPnlBars(fills) {
+  const sells = fills.filter(f => f.side === "sell" && f.realized_pnl != null).slice(-60);
+  const c = $("pnlBars"), dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = 160;
+  c.width = w * dpr; c.height = h * dpr;
+  const ctx = c.getContext("2d"); ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  if (!sells.length) { ctx.fillStyle = "#8b94a7"; ctx.fillText("No round trips yet.", 10, 22); return; }
+  const maxAbs = Math.max(...sells.map(f => Math.abs(f.realized_pnl)), 0.01);
+  const zero = h / 2, bw = Math.max(3, Math.min(16, (w - 20) / sells.length - 2));
+  ctx.strokeStyle = "#4a5468"; ctx.beginPath(); ctx.moveTo(0, zero); ctx.lineTo(w, zero); ctx.stroke();
+  sells.forEach((f, i) => {
+    const x = 10 + i * ((w - 20) / sells.length);
+    const bh = Math.abs(f.realized_pnl) / maxAbs * (h / 2 - 12);
+    ctx.fillStyle = f.arm === "llm" ? "#6ea8fe" : "#b98ff5";
+    ctx.globalAlpha = f.realized_pnl >= 0 ? 1 : 0.75;
+    ctx.fillRect(x, f.realized_pnl >= 0 ? zero - bh : zero, bw, Math.max(2, bh));
+    ctx.globalAlpha = 1;
+  });
+}
+
+function feeStack(name, cls, a) {
+  const total = a.fees_total || 0;
+  if (total <= 0) return `<div class="feearm"><span class="${cls}">${name}</span> <span class="small">no fees yet</span></div>`;
+  const seg = (v, k) => `<i class="${k}" style="width:${(v / total * 100).toFixed(2)}%" title="${usd(v)}"></i>`;
+  return `<div class="feearm">
+    <div class="row" style="display:flex;justify-content:space-between">
+      <span class="${cls}">${name}</span><span>${usd(total)} total</span></div>
+    <div class="feestack">${seg(a.fees_lp, "fl")}${seg(a.fees_slippage, "fs")}${seg(a.fees_priority, "fp")}${seg(a.fees_tds, "ft")}</div>
+    <div class="small">LP ${usd(a.fees_lp)} · slip ${usd(a.fees_slippage)} · priority ${usd(a.fees_priority)} · TDS ${usd(a.fees_tds)}</div>
+  </div>`;
+}
+
+function renderCatalog(cat) {
+  const rows = cat.catalog;
+  if (!rows.length) {
+    $("catalog").innerHTML = "<tr><td class='small'>No catalog yet — built at each pick window.</td></tr>";
+    return;
+  }
+  const picked = new Set(cat.picked);
+  $("catalog").innerHTML =
+    "<tr><th>#</th><th>token</th><th>price</th><th>liquidity</th><th>24h volume</th>" +
+    "<th>turnover</th><th>1h</th><th>24h</th><th>vol 1m</th><th>est cost</th><th>score</th></tr>" +
+    rows.map(r => {
+      const turn = r.liquidity_usd > 0 ? (r.volume_h24 / r.liquidity_usd).toFixed(1) + "x" : "—";
+      const hl = picked.has(r.mint) ? " style='background:rgba(110,168,254,.08)'" : "";
+      const chg = v => `<span class="${v >= 0 ? "pos" : "neg"}">${v >= 0 ? "+" : ""}${v.toFixed(1)}%</span>`;
+      return `<tr${hl}><td>${r.rank}</td><td><b>${r.symbol}</b>${picked.has(r.mint) ? " ◀" : ""}</td>` +
+        `<td>$${r.price_usd.toPrecision(4)}</td><td>$${Math.round(r.liquidity_usd).toLocaleString()}</td>` +
+        `<td>$${Math.round(r.volume_h24).toLocaleString()}</td><td>${turn}</td>` +
+        `<td>${chg(r.price_change_h1)}</td><td>${chg(r.price_change_h24)}</td>` +
+        `<td>${r.volatility_pct.toFixed(2)}%</td><td>${r.est_cost_pct.toFixed(2)}%</td>` +
+        `<td><b>${r.score.toFixed(1)}</b></td></tr>`;
+    }).join("");
+}
+
+function renderAnalysis(data) {
+  const a = data.analyses[0];
+  if (!a) return;
+  const col = a.action === "EXIT" ? "var(--red)" : "var(--green)";
+  $("analysisBadge").innerHTML =
+    `<span style="color:${col};font-weight:700;font-size:15px">${a.action}</span>
+     <span class="small"> ${a.symbol} · confidence ${(a.confidence * 100).toFixed(0)}% ·
+     ${new Date(a.ts * 1000).toLocaleTimeString()} · ${a.model}</span>`;
+  $("analysis").textContent =
+    `--- PROMPT ---\n${a.prompt}\n\n--- RESPONSE ---\n${a.response}`;
+}
+
+async function refresh() {
+  const [summary, equity, trades, decisions, cat, analyses] = await Promise.all([
+    fetch("/api/summary").then(r => r.json()),
+    fetch("/api/equity").then(r => r.json()),
+    fetch("/api/trades").then(r => r.json()),
+    fetch("/api/decisions").then(r => r.json()),
+    fetch("/api/catalog").then(r => r.json()),
+    fetch("/api/analyses").then(r => r.json()),
+  ]);
+  renderCatalog(cat);
+  renderAnalysis(analyses);
+
+  const pf = summary.pass_fail, cfg = summary.config, ctl = summary.control;
+  control = { paused: ctl.paused, experiment_start: ctl.experiment_start,
+              offset: Date.now() / 1000 - ctl.now };
+
+  $("statusText").textContent = ctl.paused ? "PAUSED" : "RUNNING";
+  $("status").className = "statuspill " + (ctl.paused ? "pausedp" : "running");
+  $("btnStart").textContent = ctl.paused ? "Start" : "Pause";
+  $("btnStart").className = ctl.paused ? "" : "pause";
+
+  $("cfg").textContent =
+    `Start ₹${cfg.start_balance_inr} (${usd(cfg.start_balance_usd)}) · ` +
+    `target +${usd(cfg.target_profit_usd)} · stop mode: ${cfg.stop_mode} · ` +
+    `pick every ${cfg.pick_minutes} min`;
+
+  $("verdict").textContent = pf.overall ? "PASS" : "FAIL (so far)";
+  $("verdict").className = "verdict " + (pf.overall ? "pass" : "fail");
+  $("criteria").innerHTML =
+    critRow("1. Net positive after ALL modeled costs", pf.profitable, `net ${usd(pf.net_pnl)}`, null) +
+    critRow("2. Completed round trips", pf.enough_trades,
+            `${pf.round_trips} / ${pf.min_round_trips}`, pf.round_trips / pf.min_round_trips) +
+    critRow("3. Calendar days", pf.enough_days,
+            `${pf.days_elapsed.toFixed(1)} / ${pf.min_days}`, pf.days_elapsed / pf.min_days) +
+    critRow("4. Meaningfully above random control", pf.beats_control,
+            `edge ${usd(pf.edge_usd)}, z=${pf.edge_z.toFixed(2)} (need ≥ ${pf.edge_z_min})`, null);
+
+  const a = summary.arms.llm, b = summary.arms.random;
+  $("posCards").innerHTML = posCard("Claude picker", "llm", a) + "<hr style='border-color:var(--line);opacity:.4'>" + posCard("Random control", "rnd", b);
+  drawSparks();
+
+  const rows = [["", "Claude picker", "Random control"]];
+  const line = (label, f) => rows.push([label, f(a), f(b)]);
+  line("Equity now", x => usd(x.equity));
+  line("Net realized PnL", x => usd(x.net_pnl));
+  line("Round trips", x => x.round_trips);
+  line("Win rate", x => x.round_trips ? pct(x.win_rate) : "—");
+  line("Avg win / avg loss", x => `${usd(x.avg_win)} / ${usd(x.avg_loss)}`);
+  line("Largest single loss", x => usd(x.largest_loss));
+  line("Fees total", x => usd(x.fees_total));
+  $("arms").innerHTML = rows.map((r, i) =>
+    `<tr>${r.map((cell, j) => i === 0
+        ? `<th class="${j === 1 ? "llm" : j === 2 ? "rnd" : ""}">${cell}</th>`
+        : `<td>${cell}</td>`).join("")}</tr>`).join("");
+
+  $("feeStacks").innerHTML = feeStack("Claude picker", "llm", a) + feeStack("Random control", "rnd", b);
+  drawPnlBars(trades.fills);
+
+  const fills = trades.fills.slice(-25).reverse();
+  $("trades").innerHTML =
+    "<tr><th>time</th><th>arm</th><th>side</th><th>token</th><th>size</th>" +
+    "<th>fees</th><th>PnL</th><th>balance</th><th>note</th></tr>" +
+    fills.map(f => {
+      const fees = f.fee_lp + f.fee_slippage + f.fee_priority + f.fee_tds;
+      const pnl = f.realized_pnl;
+      return `<tr><td>${new Date(f.ts * 1000).toLocaleTimeString()}</td>` +
+        `<td class="${f.arm === "llm" ? "llm" : "rnd"}">${f.arm}</td>` +
+        `<td>${f.side}</td><td>${f.symbol}</td><td>${usd(f.size_usd)}</td>` +
+        `<td>${usd(fees)}</td>` +
+        `<td class="${pnl > 0 ? "pos" : pnl < 0 ? "neg" : ""}">${pnl == null ? "—" : usd(pnl)}</td>` +
+        `<td>${usd(f.balance_after)}</td><td class="small">${f.note}</td></tr>`;
+    }).join("");
+
+  const d = decisions.decisions.find(x => x.arm === "llm");
+  if (d) {
+    $("decision").textContent =
+      `[${new Date(d.ts * 1000).toLocaleString()}] model=${d.model} ` +
+      `backend=${d.backend} pick=${d.symbol}\n\n--- PROMPT ---\n${d.prompt}` +
+      `\n\n--- RESPONSE ---\n${d.response}`;
+  }
+
+  drawChart(equity);
+}
+
+function drawChart(eq) {
+  const canvas = $("chart");
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = 240;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const series = [
+    { data: eq.llm, color: "#6ea8fe" },
+    { data: eq.random, color: "#b98ff5" },
+  ];
+  const all = series.flatMap(s => s.data);
+  if (!all.length) {
+    ctx.fillStyle = "#8b94a7";
+    ctx.fillText("No fills yet — waiting for the first window.", 12, 24);
+    return;
+  }
+  const xs = all.map(p => p[0]), ys = all.map(p => p[1]).concat([eq.start_balance_usd]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs, x0 + 1);
+  const y0 = Math.min(...ys) * 0.98, y1 = Math.max(...ys) * 1.02;
+  const X = t => 42 + (t - x0) / (x1 - x0) * (w - 57);
+  const Y = v => h - 22 - (v - y0) / (y1 - y0 || 1) * (h - 40);
+
+  ctx.strokeStyle = "#262d3b"; ctx.fillStyle = "#8b94a7"; ctx.font = "11px system-ui";
+  for (let i = 0; i <= 4; i++) {
+    const v = y0 + (y1 - y0) * i / 4, y = Y(v);
+    ctx.beginPath(); ctx.moveTo(42, y); ctx.lineTo(w - 15, y); ctx.stroke();
+    ctx.fillText("$" + v.toFixed(1), 2, y + 3);
+  }
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = "#4a5468";
+  ctx.beginPath(); ctx.moveTo(42, Y(eq.start_balance_usd));
+  ctx.lineTo(w - 15, Y(eq.start_balance_usd)); ctx.stroke();
+  ctx.setLineDash([]);
+
+  for (const s of series) {
+    if (!s.data.length) continue;
+    ctx.strokeStyle = s.color; ctx.lineWidth = 1.8; ctx.beginPath();
+    ctx.moveTo(X(x0), Y(eq.start_balance_usd));
+    for (const [t, v] of s.data) ctx.lineTo(X(t), Y(v));
+    ctx.stroke();
+  }
+}
+
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>
