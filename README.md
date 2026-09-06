@@ -120,6 +120,18 @@ python bench/fraud_bench.py --generations 8   # writes bench/results/fraud_bench
   significance-gated**: a challenger must beat the incumbent by more than one
   standard error, so noise cannot dethrone skill. Every generation is written
   to an evolution journal.
+- **A self-growing organism, not a retrain loop.** The champion network keeps
+  its weights for life. Every minute it folds newly resolved windows into
+  its weights with one small Adam step plus a replay of remembered rows
+  (continual learning, never restarting from zero). Every 1,500 rows of
+  experience it widens its smallest hidden layer *without changing what it
+  computes* (Net2Net-style function-preserving growth), so capacity rises
+  with experience by design. Tournaments add widened and deepened bodies of
+  the living champion to the population; a bigger body that is not measurably
+  worse takes over, and only a measurably better smaller body shrinks it.
+  Weights, optimiser moments, calibration and growth history are persisted
+  every minute, so a restart resumes the same organism. Experience, parameter
+  count and growth events are on the live site.
 - **A neural network written from scratch** (`memescalp/evonet.py`): forward
   pass, hand-derived back-propagation, Adam, weighted cross-entropy with L2,
   magnitude pruning, float32 throughout for AVX2. Verified by finite-difference
@@ -263,6 +275,7 @@ down in advance. The market data is the test bench; the loop is the product.
 
 - Replication window and per-regime reporting.
 - Fraud bench with more generations, per-feature gene report and invented genes.
+- Learned mutation policy from the evolution journal; learned error head for abstention.
 - Population-level diversity pressure (novelty search) and speciation.
 - Export of the evolution journal as a signed, verifiable audit log.
 

@@ -82,3 +82,39 @@ def test_net_genome_builds_and_labels():
     assert isinstance(pipe, NetPipeline) and wkey == "sample_weight"
     assert pipe.net.n_in == 19
     assert genome_label(g).startswith("net16x8(relu,lr=0.003,p=0.2)")
+
+
+def test_growth_preserves_function_and_persists():
+    X, y = separable()
+    net = EvoNet(6, [8, 4], act="relu", lr=1e-2, epochs=15).fit(X, y)
+    before = net.predict_proba(X)[:, 1]
+    net.widen(0, 4)
+    assert net.hidden == [12, 4]
+    assert np.allclose(net.predict_proba(X)[:, 1], before, atol=2e-2)
+    net.deepen(1)
+    assert len(net.hidden) == 3 and net.acts[2] == "relu"
+    assert np.allclose(net.predict_proba(X)[:, 1], before, atol=2e-2)
+    assert len(net.growth) == 2
+    # tanh nets deepen with an exact linear identity layer
+    t = EvoNet(6, [8], act="tanh", epochs=5).fit(X, y)
+    pt = t.predict_proba(X)[:, 1]
+    t.deepen(0)
+    assert t.acts == ["tanh", "linear"]
+    assert np.allclose(t.predict_proba(X)[:, 1], pt, atol=1e-5)
+    # state round-trips, optimiser moments included
+    d = net.state_dict()
+    back = EvoNet.from_state(d)
+    assert np.allclose(back.predict_proba(X)[:, 1], net.predict_proba(X)[:, 1])
+    assert back._t == net._t and back.growth == net.growth
+
+
+def test_absorb_learns_online_without_refit():
+    X, y = separable(n=800)
+    net = EvoNet(6, [8], lr=1e-2, epochs=3).fit(X[:200], y[:200])
+    acc0 = ((net.predict_proba(X[600:])[:, 1] >= 0.5) == (y[600:] > 0.5)).mean()
+    replay = (X[:200], y[:200], np.ones(200, dtype=np.float32))
+    for s in range(200, 600, 20):
+        net.absorb(X[s:s + 20], y[s:s + 20], replay=replay, steps=3)
+    acc1 = ((net.predict_proba(X[600:])[:, 1] >= 0.5) == (y[600:] > 0.5)).mean()
+    assert net.experience == 400
+    assert acc1 >= acc0 - 0.02 and acc1 > 0.85

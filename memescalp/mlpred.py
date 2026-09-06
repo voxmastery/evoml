@@ -25,6 +25,7 @@ import logging
 import math
 import random as _random
 import time
+from collections import deque as _deque
 
 from .catalog import CatalogEntry
 from .db import Database
@@ -188,6 +189,15 @@ def build_dataset(db: Database, horizon_s: float, max_rows: int = 8000):
 META_GENOME = "ml_genome"
 META_GENERATION = "ml_generation"
 META_HALL = "ml_hall_of_fame"
+META_NET_STATE = "ml_net_state"     # the organism: weights, moments, calibration
+META_GROWTH = "ml_growth"           # experience / params / growth events (for the UI)
+REPLAY_SIZE = 4000                  # rows of remembered experience for online replay
+REPLAY_BATCH = 128
+GROW_STEPS = 2                      # Adam steps per absorbed window
+PENDING_MAX_AGE_S = 2 * 3600.0
+GROW_EVERY_ROWS = 1500              # widen the body every N rows of experience
+GROW_FRACTION = 0.25                # by this share of the smallest hidden layer
+MAX_PARAMS = 50_000                 # hard ceiling so growth stays honest
 HALL_SIZE = 5
 SUCCESSION_SE_MULT = 1.0   # challenger must beat incumbent by > 1 SE
 NUM_FEATURES = len(FEATURE_NAMES)
@@ -541,6 +551,143 @@ class MLForecaster:
         self.last_trained: float | None = None
         self.champion: str = "none"
         self.candidate_scores: dict[str, float] = {}
+        # Continual growth: base feature vectors stashed per prediction window
+        # until their outcome exists, a replay memory of absorbed rows, and a
+        # running count of experience folded into the weights online.
+        self._pending: dict[float, list[tuple[str, list[float]]]] = {}
+        self._replay: _deque = _deque(maxlen=REPLAY_SIZE)
+        self.experience = 0
+        self.growth_events: list[str] = []
+        self.last_absorbed: float | None = None
+
+    # --- the organism: persistence and continual learning ------------------------
+    def _net(self) -> EvoNet | None:
+        return (self._pipeline.net
+                if isinstance(self._pipeline, NetPipeline) else None)
+
+    def _save_state(self, db: Database) -> None:
+        """Persist the champion network with its optimiser moments, calibration
+        and familiarity statistics, so a restart resumes the same organism."""
+        net = self._net()
+        if net is None or self._genome is None:
+            return
+        state = {
+            "net": net.state_dict(), "platt": self._platt, "fam": self._fam,
+            "genome": self._genome, "champion": self.champion,
+            "holdout": self.holdout_accuracy, "n_train": self.n_train,
+            "saved_at": time.time(),
+        }
+        db.set_meta(META_NET_STATE, json.dumps(state))
+        db.set_meta(META_GROWTH, json.dumps({
+            "experience": net.experience, "params": net.n_params(),
+            "hidden": net.hidden, "acts": net.acts, "growth": net.growth,
+            "champion": self.champion, "updated": time.time(),
+            "last_absorbed": self.last_absorbed,
+        }))
+
+    def load_state(self, db: Database) -> bool:
+        """Resume the persisted organism instead of starting from zero."""
+        raw = db.get_meta(META_NET_STATE)
+        if not raw:
+            return False
+        try:
+            state = json.loads(raw)
+            net = EvoNet.from_state(state["net"])
+        except Exception:
+            log.exception("could not restore the persisted network")
+            return False
+        self._pipeline = NetPipeline(net)
+        self._pipes = {"global": self._pipeline}
+        self._parent_net = net
+        self._platt = tuple(state["platt"]) if state.get("platt") else None
+        self._fam = tuple(state["fam"]) if state.get("fam") else None
+        self._genome = _ensure_genome_defaults(state["genome"])
+        self._base_thr = self._genome["thr"]
+        self.champion = state.get("champion", genome_label(self._genome))
+        self.holdout_accuracy = state.get("holdout")
+        self.n_train = int(state.get("n_train", 0))
+        self.n_params = net.n_params()
+        self.experience = net.experience
+        self.growth_events = list(net.growth)
+        self.last_trained = state.get("saved_at")
+        return True
+
+    def remember_window(self, ts: float, rows: list[tuple[str, list[float]]]) -> None:
+        if rows:
+            self._pending[ts] = rows
+        stale = [t for t in self._pending if ts - t > PENDING_MAX_AGE_S]
+        for t in stale:
+            del self._pending[t]
+
+    def grow_step(self, db: Database, horizon_s: float) -> dict:
+        """Fold every newly resolved window into the champion's weights: label
+        the stashed feature vectors against the real price at the horizon,
+        take a small Adam step with a replay of remembered rows, persist.
+        The organism learns from every outcome as it arrives; the tournament
+        only decides whether a grown or mutated body would learn better."""
+        now = time.time()
+        ready = [t for t in self._pending
+                 if t + horizon_s + 90.0 <= now]
+        out = {"windows": len(ready), "rows": 0, "absorbed": 0, "loss": None}
+        if not ready:
+            return out
+        Xn: list[list[float]] = []
+        yn: list[int] = []
+        for t in sorted(ready):
+            rows = self._pending.pop(t)
+            for mint, xb in rows:
+                p0 = db.price_at_or_after(mint, t)
+                p1 = db.price_at_or_after(mint, t + horizon_s)
+                if p0 is None or p1 is None or p0[1] <= 0:
+                    continue
+                if p1[0] - (t + horizon_s) > 60.0:
+                    continue
+                move = (p1[1] / p0[1] - 1.0) * 100.0
+                if abs(move) < MIN_LABEL_MOVE or abs(move) > GLITCH_MOVE:
+                    continue
+                Xn.append(apply_genome(self._genome, xb) if self._genome else xb)
+                yn.append(1 if move > 0 else 0)
+        out["rows"] = len(Xn)
+        net = self._net()
+        if net is None or not Xn:
+            for xm, yi in zip(Xn, yn):
+                self._replay.append((xm, yi))
+            return out
+        replay = None
+        if self._replay:
+            rng = _random.Random(int(now))
+            sample = rng.sample(list(self._replay), min(REPLAY_BATCH, len(self._replay)))
+            replay = ([r[0] for r in sample], [r[1] for r in sample],
+                      [1.0] * len(sample))
+        try:
+            out["loss"] = net.absorb(Xn, yn, replay=replay, steps=GROW_STEPS)
+        except Exception:
+            log.exception("online absorb failed; the organism keeps its weights")
+            return out
+        for xm, yi in zip(Xn, yn):
+            self._replay.append((xm, yi))
+        out["absorbed"] = len(Xn)
+        # Growth with experience: every GROW_EVERY_ROWS rows the body widens its
+        # smallest hidden layer without changing what it computes. Capacity
+        # rises as a matter of course; the tournament prunes it back only if a
+        # smaller body is measurably better.
+        before_bucket = (net.experience - len(Xn)) // GROW_EVERY_ROWS
+        after_bucket = net.experience // GROW_EVERY_ROWS
+        if after_bucket > before_bucket and net.n_params() < MAX_PARAMS:
+            layer = min(range(len(net.hidden)), key=lambda i: net.hidden[i])
+            extra = max(2, int(net.hidden[layer] * GROW_FRACTION))
+            net.widen(layer, extra)
+            if self._genome is not None:
+                self._genome["hidden"] = list(net.hidden)
+            self.growth_events = list(net.growth)
+            out["grew"] = net.growth[-1]
+            log.info("[ml] organism grew: %s -> hidden=%s params=%d",
+                     net.growth[-1], net.hidden, net.n_params())
+        self.experience = net.experience
+        self.n_params = net.n_params()
+        self.last_absorbed = now
+        self._save_state(db)
+        return out
 
     @property
     def trained(self) -> bool:
@@ -609,6 +756,22 @@ class MLForecaster:
                       mutate_genome(champion_genome, rng, report),
                       mutate_genome(champion_genome, rng, report),
                       immigrant]
+        # Function-preserving growth children: the living champion's body,
+        # widened or deepened without changing what it computes, then trained
+        # on. Growth only sticks if the bigger body learns measurably better.
+        parent = self._parent_net
+        if parent is not None and champion_genome["kind"] == "net":
+            layer = rng.randrange(len(parent.hidden))
+            extra = max(2, parent.hidden[layer] // 2)
+            wide = json.loads(json.dumps(champion_genome))
+            wide["hidden"] = list(parent.hidden)
+            wide["hidden"][layer] += extra
+            wide["grow"] = ["widen", layer, extra]
+            deep = json.loads(json.dumps(champion_genome))
+            deep["hidden"] = list(parent.hidden)
+            deep["hidden"].insert(layer + 1, parent.hidden[layer] * (2 if parent.act == "relu" else 1))
+            deep["grow"] = ["deepen", layer]
+            population += [wide, deep]
         seen: set[str] = set()
         candidates: dict[str, tuple] = {}
         genomes: dict[str, dict] = {}
@@ -633,10 +796,29 @@ class MLForecaster:
                 Xc_m = [apply_genome(gen, r) for r in Xc]
                 Xh_m = [apply_genome(gen, r) for r in Xh]
                 kwargs = {weight_key: weights} if weight_key else {}
-                # Lamarckian inheritance: a from-scratch net child starts from
-                # the champion's learned weights and keeps learning.
+                # The organism continues: the incumbent net is its own clone
+                # (weights, moments, experience); growth children are exact
+                # function-preserving copies that gained capacity; other net
+                # children inherit overlapping weight blocks.
                 if isinstance(pipe, NetPipeline) and self._parent_net is not None:
-                    pipe.net.inherit(self._parent_net)
+                    grow = gen.get("grow")
+                    same_body = (gen["hidden"] == self._parent_net.hidden
+                                 and gen.get("features") == champion_genome.get("features")
+                                 and gen.get("synth") == champion_genome.get("synth"))
+                    if grow and same_body is False and gen.get("features") == champion_genome.get("features"):
+                        body = self._parent_net.clone()
+                        if grow[0] == "widen":
+                            body.widen(int(grow[1]), int(grow[2]))
+                        else:
+                            body.deepen(int(grow[1]))
+                        body.epochs = max(4, min(body.epochs, 12))
+                        pipe = NetPipeline(body)
+                    elif same_body and not grow:
+                        body = self._parent_net.clone()
+                        body.epochs = max(4, min(body.epochs, 12))
+                        pipe = NetPipeline(body)
+                    else:
+                        pipe.net.inherit(self._parent_net)
                 pipe.fit(Xf_m, yf, **kwargs)
                 pipes = {"global": pipe}
                 if gen.get("poly"):
@@ -688,8 +870,8 @@ class MLForecaster:
         champion = max(scores, key=scores.get)
         incumbent = genome_label(champion_genome)
         succession = "new lineage"
+        noise = SUCCESSION_SE_MULT * math.sqrt(0.25 / max(1, len(Xh)))
         if incumbent in scores and champion != incumbent:
-            noise = SUCCESSION_SE_MULT * math.sqrt(0.25 / max(1, len(Xh)))
             if scores[champion] - scores[incumbent] <= noise:
                 champion = incumbent
                 succession = "held (challenger within noise)"
@@ -697,11 +879,26 @@ class MLForecaster:
                 succession = "dethroned"
         elif champion == incumbent:
             succession = "held"
+        # Growth bias: a bigger body that is not measurably worse than the
+        # incumbent takes over, so capacity ratchets upward with evidence
+        # that it did no harm, and comes down only when smaller is better.
+        if champion == incumbent:
+            grown = [n for n, g in genomes.items()
+                     if g.get("grow") and n in scores
+                     and scores[n] >= scores[incumbent] - noise]
+            if grown:
+                champion = max(grown, key=scores.get)
+                succession = "grew (bigger body within noise)"
         self._pipes, self._platt = fitted[champion]
         self._pipeline = self._pipes["global"]
         self._parent_net = (self._pipeline.net
                             if isinstance(self._pipeline, NetPipeline) else None)
         self._fam = (fam_mu, fam_sd)
+        genomes[champion] = {k: v for k, v in genomes[champion].items() if k != "grow"}
+        if self._parent_net is not None:
+            genomes[champion]["hidden"] = list(self._parent_net.hidden)
+            self.experience = self._parent_net.experience
+            self.growth_events = list(self._parent_net.growth)
         self._genome = genomes[champion]
         self._base_thr = genomes[champion]["thr"]
         self.champion = champion
@@ -725,6 +922,9 @@ class MLForecaster:
         # Lab notebook: every self-experiment is recorded, append-only.
         db.insert_evolution(time.time(), generation + 1, champion,
                             json.dumps(genomes[champion]), json.dumps(scores))
+        self._save_state(db)
+        result["growth"] = self.growth_events[-3:]
+        result["experience"] = self.experience
         result["synth"] = [synth_str(e) for e in genomes[champion]["synth"]]
         result["top_genes"] = sorted(
             ((FEATURE_NAMES[i], round(c, 3)) for i, c in enumerate(report)),
@@ -769,6 +969,7 @@ class MLForecaster:
         hs, hc, sol5 = context_features(db, now)
         best = None
         lines = []
+        stash: list[tuple[str, list[float]]] = []
         for e in catalog:
             ticks = ticks_by_mint.get(e.mint, [])
             micro = micro_features(ticks)
@@ -788,6 +989,7 @@ class MLForecaster:
                                strategy_features(one_minute_closes(ticks)),
                                db.tsfm_before(e.mint, now) or (0.0, 0.0))
             xb = x
+            stash.append((e.mint, list(xb)))
             gen = self._genome or {}
             if self._genome is not None:
                 x = apply_genome(self._genome, x)
@@ -808,6 +1010,7 @@ class MLForecaster:
                 best = (e, conf, "UP" if p_up >= 0.5 else "DOWN")
 
         detail = "calibrated model probabilities:\n" + "\n".join(lines)
+        self.remember_window(now, stash)
         if best is None or best[1] < threshold:
             why = ("all candidates gated or none scored" if best is None else
                    f"max P={best[1]:.3f} < thr={threshold:.2f}")

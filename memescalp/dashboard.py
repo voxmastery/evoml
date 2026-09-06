@@ -154,8 +154,10 @@ def create_app(settings: Settings, db: Database, feed: PriceFeed,
                 "population": len(scores),
             })
         gene_report = db.get_meta("ml_gene_report")
+        growth = db.get_meta("ml_growth")
         return {"lineage": out,
-                "gene_report": _json.loads(gene_report) if gene_report else {}}
+                "gene_report": _json.loads(gene_report) if gene_report else {},
+                "organism": _json.loads(growth) if growth else None}
 
     @app.get("/api/predict/latest")
     def predict_latest() -> dict:

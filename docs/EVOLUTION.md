@@ -57,3 +57,20 @@ lower it to 0.55.
   succession is now significance-gated and why the hall of fame exists.
 - Calls above 0.70 confidence were only 48 % right early on; the humility cap
   and Platt calibration removed the inversion.
+
+## The organism (continual growth)
+
+- `MLForecaster.grow_step` runs every minute: stashed feature vectors from
+  each prediction window are labelled against the real price at the horizon
+  and absorbed with `EvoNet.absorb` (one small Adam step, replay of up to 128
+  remembered rows, optimiser moments carried forward).
+- Every `GROW_EVERY_ROWS` (1,500) rows of experience the smallest hidden
+  layer widens by 25 % using `EvoNet.widen`, which duplicates units and halves
+  their outgoing weights so the function is unchanged. `EvoNet.deepen`
+  inserts an identity layer (relu pair trick, or a linear layer for tanh).
+- Tournaments add a widened and a deepened clone of the champion to the
+  population. Succession: a bigger body within noise of the incumbent wins;
+  a smaller body must be measurably better.
+- `ml_net_state` in the meta table holds the full organism; `ml_growth`
+  holds experience, parameters and growth events for the UI. A restart calls
+  `load_state` and continues.

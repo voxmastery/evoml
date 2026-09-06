@@ -225,16 +225,37 @@ async def ml_retrain_loop(settings, db: Database, ml: MLForecaster,
                 log.info("[ml] retrained on %d rows | champion %s (%d params) | %s",
                          result["rows"], result["champion"],
                          result["n_params"], scores)
-                log.info("[ml] gen %s | succession: %s | invented genes: %s | strongest base genes: %s",
+                log.info("[ml] gen %s | succession: %s | invented genes: %s | strongest base genes: %s | growth: %s | experience=%s",
                          result.get("generation"), result.get("succession"),
                          result.get("synth") or "none",
-                         result.get("top_genes"))
+                         result.get("top_genes"), result.get("growth") or "none",
+                         result.get("experience"))
             else:
                 log.info("[ml] not trained yet (%d/%d rows)",
                          result["rows"], 300)
         except Exception:
             log.exception("ml retrain failed; keeping previous model")
         await asyncio.sleep(ML_RETRAIN_SECONDS)
+
+
+ML_GROW_SECONDS = 60
+
+
+async def ml_grow_loop(settings, db: Database, ml: MLForecaster) -> None:
+    """Continual learning: every minute, fold newly resolved windows into the
+    champion's weights (no retraining from zero) and persist the organism."""
+    while True:
+        try:
+            out = await asyncio.to_thread(
+                ml.grow_step, db, settings.horizon_minutes * 60.0)
+            if out["absorbed"]:
+                log.info("[ml] absorbed %d rows from %d windows | experience=%d "
+                         "params=%d loss=%.3f",
+                         out["absorbed"], out["windows"], ml.experience,
+                         ml.n_params, out["loss"] or 0.0)
+        except Exception:
+            log.exception("ml grow step failed; weights unchanged")
+        await asyncio.sleep(ML_GROW_SECONDS)
 
 
 async def playbook_loop(settings, db: Database, backend,
@@ -448,6 +469,10 @@ async def main() -> None:
     tasks = [feed.poll_forever(settings.poll_seconds), server.serve()]
     if settings.mode == "predict":
         ml = MLForecaster()
+        if ml.load_state(db):
+            log.info("[ml] resumed the persisted organism: %s | experience=%d "
+                     "params=%d growth=%s", ml.champion, ml.experience,
+                     ml.n_params, ml.growth_events[-3:] or "none")
         hedge = HedgeForecaster(db)
         tsfm = ChronosFeatures(int(settings.horizon_minutes))
         tasks += [
@@ -455,6 +480,7 @@ async def main() -> None:
                          ml=ml, hedge=hedge, tsfm=tsfm),
             resolve_loop(settings, db, csv, controller),
             ml_retrain_loop(settings, db, ml, controller),
+            ml_grow_loop(settings, db, ml),
         ]
         if settings.llm_arm:
             tasks.append(playbook_loop(settings, db, backend, controller))

@@ -212,3 +212,84 @@ def test_familiarity_and_regime_expression():
     assert regime_of(x) == "revert"
     x[REGIME_VR_INDEX] = 0.0
     assert regime_of(x) == "walk"
+
+
+def test_organism_persists_and_grows_online(settings, monkeypatch):
+    """The champion network survives a restart and learns from resolved
+    windows without being retrained from zero."""
+    import numpy as np
+    import memescalp.mlpred as mlp
+    from memescalp.db import Database
+    from memescalp.evonet import EvoNet, NetPipeline
+
+    db = Database(settings.db_path)
+    rng = np.random.default_rng(3)
+    X = rng.standard_normal((400, mlp.NUM_FEATURES)).astype(np.float32)
+    y = (X[:, 0] > 0).astype(int)
+    net = EvoNet(mlp.NUM_FEATURES, [8], lr=1e-2, epochs=5).fit(X, y)
+    ml = mlp.MLForecaster()
+    ml._pipeline = NetPipeline(net)
+    ml._pipes = {"global": ml._pipeline}
+    ml._parent_net = net
+    ml._genome = mlp._ensure_genome_defaults({"kind": "net", "hidden": [8]})
+    ml.champion = "net8"
+    ml.holdout_accuracy = 0.6
+    ml._save_state(db)
+
+    fresh = mlp.MLForecaster()
+    assert fresh.load_state(db) and fresh.trained
+    assert np.allclose(fresh._pipeline.predict_proba(X[:5]),
+                       ml._pipeline.predict_proba(X[:5]))
+    assert fresh.champion == "net8" and fresh.n_params == net.n_params()
+
+    # A resolved window: price rose 1% after the stash -> label 1.
+    ts0 = 1000.0
+    db.insert_price(ts0, "M1", "AAA", 1.0, "jupiter")
+    db.insert_price(ts0 + 120.0, "M1", "AAA", 1.01, "jupiter")
+    fresh.remember_window(ts0, [("M1", [float(v) for v in X[0]])])
+    import time as _t
+    monkeypatch.setattr(_t, "time", lambda: ts0 + 120.0 + 200.0)
+    out = fresh.grow_step(db, 120.0)
+    assert out["rows"] == 1 and out["absorbed"] == 1
+    assert fresh.experience == 1
+    assert json_loads(db.get_meta(mlp.META_GROWTH))["experience"] == 1
+
+
+def json_loads(raw):
+    import json
+    return json.loads(raw)
+
+
+def test_organism_widens_with_experience(settings, monkeypatch):
+    import numpy as np
+    import memescalp.mlpred as mlp
+    from memescalp.db import Database
+    from memescalp.evonet import EvoNet, NetPipeline
+
+    monkeypatch.setattr(mlp, "GROW_EVERY_ROWS", 3)
+    db = Database(settings.db_path)
+    rng = np.random.default_rng(5)
+    X = rng.standard_normal((300, mlp.NUM_FEATURES)).astype(np.float32)
+    y = (X[:, 0] > 0).astype(int)
+    net = EvoNet(mlp.NUM_FEATURES, [8, 4], lr=1e-2, epochs=3).fit(X, y)
+    ml = mlp.MLForecaster()
+    ml._pipeline = NetPipeline(net)
+    ml._pipes = {"global": ml._pipeline}
+    ml._genome = mlp._ensure_genome_defaults({"kind": "net", "hidden": [8, 4]})
+    before = net.predict_proba(X[:20])[:, 1].copy()
+    ts0 = 1000.0
+    rows = []
+    for i in range(4):
+        m = f"M{i}"
+        db.insert_price(ts0, m, m, 1.0, "jupiter")
+        db.insert_price(ts0 + 120.0, m, m, 1.02, "jupiter")
+        rows.append((m, [float(v) for v in X[i]]))
+    ml.remember_window(ts0, rows)
+    import time as _t
+    monkeypatch.setattr(_t, "time", lambda: ts0 + 400.0)
+    out = ml.grow_step(db, 120.0)
+    assert out["absorbed"] == 4 and out.get("grew", "").startswith("widen")
+    assert net.hidden == [8, 6] and ml._genome["hidden"] == [8, 6]
+    assert ml.n_params == net.n_params() > 0
+    # growth kept the function close (one small Adam step moved it slightly)
+    assert np.abs(net.predict_proba(X[:20])[:, 1] - before).max() < 0.2
