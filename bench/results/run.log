@@ -1,0 +1,19 @@
+rows train=170884 val=54113 test=54114 | frauds train=360 val=56 test=71
+gen 0 champion net24x12(relu,lr=0.01,p=0.0)[29f] val AP 0.638 ± 0.060
+gen 1 champion net24x12(relu,lr=0.01,p=0.0)[29f] val AP 0.747 ± 0.066 (dethroned) | net24x12(relu,lr=0.01,p=0.0)[29f]=0.747, net24x18(relu,lr=0.01,p=0.0)[29f]=0.713, net16x8(relu,lr=0.003,p=0.2)[29f]=0.654
+gen 2 champion net24x12(relu,lr=0.01,p=0.0)[29f] val AP 0.747 ± 0.066 (held) | net24x12(relu,lr=0.01,p=0.0)[29f]=0.748, net12x12(relu,lr=0.01,p=0.0)[29f]=0.756, net24x12(relu,lr=0.01,p=0.2)[29f]=0.735
+gen 3 champion net24x12(relu,lr=0.01,p=0.0)[29f] val AP 0.747 ± 0.066 (held) | net24x12(relu,lr=0.01,p=0.0)[29f]=0.747, net24x12(relu,lr=0.01,p=0.0)[28f]=0.474, net24x12(tanh,lr=0.01,p=0.0)[29f]=0.740, hgb(d=4,lr=0.05,i=200)[29f]=0.717
+gen 4 champion net24x12(relu,lr=0.01,p=0.0)[29f] val AP 0.747 ± 0.066 (held) | net24x12(relu,lr=0.01,p=0.0)[29f]=0.748, net24x12(relu,lr=0.01,p=0.0)[28f]=0.769, net24x8(relu,lr=0.003,p=0.2)[29f]=0.574
+gen 5 champion net24x12(relu,lr=0.01,p=0.0)[29f] val AP 0.747 ± 0.066 (held) | net24x12(relu,lr=0.01,p=0.0)[29f]=0.747, net24x12(relu,lr=0.005,p=0.0)[29f]=0.671, net24x12(tanh,lr=0.01,p=0.0)[29f]=0.740, logreg(C=1)[29f]=0.757
+gen 6 champion net24x12(relu,lr=0.01,p=0.0)[29f] val AP 0.747 ± 0.066 (held) | net24x12(relu,lr=0.01,p=0.0)[29f]=0.498, net24x12(relu,lr=0.01,p=0.0)[28f]=0.769, hgb(d=3,lr=0.1,i=200)[29f]=0.769
+gen 7 champion net24x12(relu,lr=0.01,p=0.0)[29f] val AP 0.747 ± 0.066 (held) | net24x12(relu,lr=0.01,p=0.0)[29f]=0.747, net24x12(tanh,lr=0.01,p=0.0)[29f]=0.740, net24x12(relu,lr=0.005,p=0.0)[29f]=0.671, net16x8(relu,lr=0.003,p=0.1)[29f]=0.598
+gen 8 champion net24x12(relu,lr=0.01,p=0.0)[29f] val AP 0.747 ± 0.066 (held) | net24x12(relu,lr=0.01,p=0.0)[29f]=0.748, logreg(C=0.5)[29f]=0.757
+| Scorer | PR-AUC | Precision @0.5% | Recall @0.5% |
+|---|---:|---:|---:|
+| evoml | 0.776 | 0.222 | 0.845 |
+| logreg_balanced | 0.770 | 0.222 | 0.845 |
+| random | 0.002 | 0.004 | 0.014 |
+
+Champion: `net24x12(relu,lr=0.01,p=0.0)[29f]` · test rows 54114 · test frauds 71
+AP difference 95% CI: vs random [0.698, 0.858] · vs logreg [-0.032, 0.052]
+Gates: G1_beats_random=PASS, G2_recall_at_budget=PASS, G3_noninferior_to_logreg=PASS, beats_logreg_ci_excludes_zero=FAIL

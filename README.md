@@ -2,12 +2,15 @@
 
 # EvoML
 
-**A self-evolving prediction model with an honest scoreboard.**
+**A self-evolving model foundation for decisions under uncertainty, with an
+honest scoreboard.**
 
-Predicts 15-minute price direction on 30 live Solana tokens, rewrites its own
-genome every 30 minutes, and measures itself against a random control in
-public with an append-only audit trail. Runs on a laptop CPU. No AI API key.
-The neural network is written from first principles in NumPy.
+EvoML rewrites its own genome every 30 minutes, writes its own neural network
+from first principles, and refuses to believe itself until pre-registered
+gates are cleared against a random control on identical data. Two test
+benches, same loop: live 15-minute crypto direction (the hardest public
+stress test we could find) and public credit-card fraud (the fintech
+problem it is meant for). Runs on a laptop CPU. No AI API key.
 
 [Live site + growth visualisation](https://evoml-lab.higgsfield.app) ·
 [Live dashboard (raw, on EC2)](http://65.2.213.196:8765) ·
@@ -65,6 +68,33 @@ Pre-registered pass/fail gates, all passed:
 
 Full methodology, definitions and the reproduction procedure are in
 [docs/RESULTS.md](docs/RESULTS.md).
+
+### Second bench: credit-card fraud (the fintech problem)
+
+Same loop, different data: the public ULB credit-card fraud set (284,807
+transactions, 0.17 % fraud) from OpenML, time-ordered with purged splits, a
+random control and a balanced logistic-regression baseline scored on the same
+future window, and three gates written down before the run
+(`bench/fraud_bench.py`). One command, 90 seconds on a laptop CPU.
+
+| Scorer | PR-AUC | Precision @0.5 % alerts | Recall @0.5 % alerts |
+|---|---:|---:|---:|
+| **EvoML** (champion: from-scratch `net24x12`) | **0.776** | 0.222 | **0.845** |
+| Balanced logistic regression | 0.770 | 0.222 | 0.845 |
+| Random control | 0.002 | 0.004 | 0.014 |
+
+Gates: beats random (95 % CI on the PR-AUC gap [0.70, 0.86]) **pass**; recall
+at the fixed 0.5 % alert budget ≥ 0.70 **pass**; non-inferior to the baseline
+**pass**. It does not *significantly* beat the tuned baseline (CI on the gap
+[−0.03, +0.05]); we report that rather than hide it. The point is the loop:
+the evolved champion, a network written from scratch, reached a strong
+baseline on a fintech problem without hand-tuning, under the same gates and
+controls as the live market run.
+
+```bash
+python bench/fraud_bench.py --generations 8   # writes bench/results/fraud_bench.{json,md}
+```
+
 
 ## What is new
 
@@ -169,6 +199,7 @@ memescalp/                 package (name kept from the original scalping harness
   dashboard.py, static/    FastAPI JSON endpoints and the single-page dashboard
   llm.py, picker.py, …     optional Claude arm and the legacy paper-trading simulator
 tools/push_snapshot.py     live snapshot pusher for the public site
+bench/fraud_bench.py       second bench: the same loop on public credit-card fraud data
 tests/                     103 tests (pytest)
 docs/                      results, architecture, evolution, submission, strategy
 deploy/                    systemd user units
@@ -212,7 +243,7 @@ and were fixed before the run started.
 
 ## Why this matters for fintech
 
-Risk, fraud and pricing models decay. The hard part is not training a model
+Markets are the stress test, not the product. Risk, fraud and pricing models decay. The hard part is not training a model
 once; it is knowing, continuously and honestly, whether the model in
 production still beats a trivial baseline, and letting it rewrite itself when
 it does not. EvoML is that loop: a model that keeps evolving, and a harness
@@ -222,8 +253,7 @@ down in advance. The market data is the test bench; the loop is the product.
 ## Roadmap
 
 - Replication window and per-regime reporting.
-- Second test bench: the same genome tournament on a public fraud-detection
-  dataset with a random control, to show the loop transfers to fintech risk.
+- Fraud bench with more generations, per-feature gene report and invented genes.
 - Population-level diversity pressure (novelty search) and speciation.
 - Export of the evolution journal as a signed, verifiable audit log.
 

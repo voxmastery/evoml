@@ -21,10 +21,10 @@ of AI.
 1. **Keep the run alive until interviews.** A live scoreboard that has kept
    moving for 30+ days is more convincing than any slide. Do not reset the
    archive.
-2. **Add the fraud bench (highest leverage).** Run the same genome
-   tournament on a public fraud dataset (e.g. the IEEE-CIS or PaySim data)
-   with a random control and time-ordered holdout. Even a modest, honest
-   result proves the loop transfers to Razorpay's world.
+2. **Fraud bench: done.** `bench/fraud_bench.py` runs the same loop on the
+   public credit-card fraud set with a random control, a logistic baseline
+   and pre-registered gates (all pass; matches the baseline, beats random).
+   Next: more generations and invented genes on that bench.
 3. **Publish the replication window.** Split the ledger into the first and
    second fortnight and report both; honesty about drift is the pitch.
 4. **Record a 90-second walkthrough of the live site** (screen capture) and

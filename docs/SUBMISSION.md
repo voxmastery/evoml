@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Project | EvoML: a self-evolving prediction model with an honest scoreboard |
+| Project | EvoML: a self-evolving model foundation for decisions under uncertainty, with an honest scoreboard |
 | Repository | https://github.com/voxmastery/evoml |
 | Live site | https://evoml-lab.higgsfield.app (live growth visualisation, pitch, audit trail) |
 | Live dashboard (raw API + scoreboard, EC2 Mumbai) | http://65.2.213.196:8765 |
