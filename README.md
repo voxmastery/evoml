@@ -91,6 +91,15 @@ the evolved champion, a network written from scratch, reached a strong
 baseline on a fintech problem without hand-tuning, under the same gates and
 controls as the live market run.
 
+A longer run (30 generations, invented genes and a hall of fame enabled)
+evolved the gene `div(V4, V15)`, lifted validation PR-AUC from 0.747 to
+0.774, and held the crown for 29 generations under the one-SE rule. On the
+held-out test window it scored 0.764, inside the noise of the 8-generation
+result (71 test frauds; CI on the gap vs baseline [−0.07, +0.06]). The
+validation gain did not transfer, which is exactly the kind of thing the
+gating and the held-out window exist to expose. Both runs are in
+`bench/results/`.
+
 ```bash
 python bench/fraud_bench.py --generations 8   # writes bench/results/fraud_bench.{json,md}
 ```

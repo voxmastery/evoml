@@ -1,0 +1,42 @@
+rows train=170884 val=54113 test=54114 | frauds train=360 val=56 test=71
+gen 0 champion net24x12(relu,lr=0.01,p=0.0)[29f+0s] val AP 0.638 ± 0.060
+gen 1 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (dethroned) | net24x12(relu,lr=0.01,p=0.0)[29f+0s]=0.638, net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net36x12(relu,lr=0.01,p=0.0)[29f+0s]=0.553, logreg(C=1)[29f+0s]=0.757
+gen 2 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.760, net24x12(relu,lr=0.01,p=0.0)[29f+2s]=0.765, net32x8(tanh,lr=0.001,p=0.0)[29f+0s]=0.732
+gen 3 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.760, net24x12(relu,lr=0.01,p=0.0)[29f+2s]=0.706, hgb(d=4,lr=0.05,i=100)[29f+0s]=0.717
+gen 4 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[29f+0s]=0.638, net24x12(relu,lr=0.01,p=0.0)[28f+1s]=0.715, net24x12(relu,lr=0.01,p=0.0)[29f+3s]=0.752
+gen 5 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.005,p=0.0)[29f+1s]=0.773, net24x12(relu,lr=0.01,p=0.0)[28f+1s]=0.674, net24x12(relu,lr=0.01,p=0.0)[29f+0s]=0.638
+gen 6 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[28f+1s]=0.494, net24x12(tanh,lr=0.01,p=0.0)[29f+1s]=0.703, net24x12(relu,lr=0.01,p=0.0)[29f+2s]=0.760
+gen 7 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.760, net16x8(tanh,lr=0.001,p=0.1)[29f+0s]=0.700
+gen 8 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[28f+1s]=0.668, net24x18(relu,lr=0.01,p=0.0)[29f+1s]=0.720, logreg(C=1)[29f+0s]=0.757
+gen 9 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.02,p=0.0)[29f+1s]=0.369, net24x12(relu,lr=0.01,p=0.0)[28f+1s]=0.734, net16x8(relu,lr=0.01,p=0.0)[29f+0s]=0.769
+gen 10 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.760, net24x12(relu,lr=0.01,p=0.1)[29f+1s]=0.760, net16x8(relu,lr=0.01,p=0.0)[28f+0s]=0.458
+gen 11 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[29f+0s]=0.638, net24x12(relu,lr=0.01,p=0.1)[29f+2s]=0.767
+gen 12 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[29f+2s]=0.751, net24x12(relu,lr=0.005,p=0.0)[29f+1s]=0.773
+gen 13 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[29f+2s]=0.756, net24x12(relu,lr=0.01,p=0.0)[28f+1s]=0.567, net24x8(tanh,lr=0.001,p=0.0)[29f+0s]=0.732
+gen 14 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.687, net24x12(relu,lr=0.005,p=0.0)[29f+1s]=0.773, net16x8(relu,lr=0.01,p=0.1)[29f+0s]=0.769
+gen 15 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.657, net24x12(relu,lr=0.02,p=0.0)[29f+1s]=0.369
+gen 16 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.760, net24x12(tanh,lr=0.01,p=0.0)[29f+1s]=0.703, hgb(d=6,lr=0.05,i=100)[29f+0s]=0.705
+gen 17 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[28f+1s]=0.715, net24x12(tanh,lr=0.01,p=0.0)[29f+1s]=0.703
+gen 18 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[29f+0s]=0.638, net32x8(relu,lr=0.003,p=0.0)[29f+0s]=0.355
+gen 19 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.760, net32x12(relu,lr=0.01,p=0.0)[29f+0s]=0.488
+gen 20 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[29f+2s]=0.740, net24x12(relu,lr=0.01,p=0.1)[28f+2s]=0.520
+gen 21 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[29f+2s]=0.764, net24x12(relu,lr=0.001,p=0.0)[29f+0s]=0.755
+gen 22 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[29f+0s]=0.638, net24x12(tanh,lr=0.01,p=0.0)[29f+1s]=0.703, net16x8(relu,lr=0.01,p=0.1)[29f+0s]=0.503
+gen 23 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[28f+1s]=0.650, net24x12(relu,lr=0.01,p=0.0)[29f+0s]=0.638, net16x8(relu,lr=0.005,p=0.1)[29f+0s]=0.695
+gen 24 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[28f+1s]=0.590, net24x12(relu,lr=0.01,p=0.0)[29f+0s]=0.638, hgb(d=3,lr=0.05,i=200)[29f+0s]=0.776
+gen 25 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[29f+0s]=0.638, net24x12(relu,lr=0.01,p=0.0)[28f+1s]=0.734, net16x8(relu,lr=0.01,p=0.0)[29f+0s]=0.769
+gen 26 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.711, net24x12(relu,lr=0.01,p=0.0)[29f+2s]=0.767, net16x8(relu,lr=0.01,p=0.0)[29f+0s]=0.501
+gen 27 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.657, net24x12(relu,lr=0.01,p=0.0)[29f+0s]=0.638
+gen 28 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[29f+0s]=0.638, net24x12(relu,lr=0.01,p=0.0)[28f+1s]=0.746, net24x8(relu,lr=0.001,p=0.0)[29f+0s]=0.726
+gen 29 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[29f+0s]=0.638, net24x12(tanh,lr=0.01,p=0.0)[29f+1s]=0.703, net16x8(relu,lr=0.003,p=0.1)[29f+0s]=0.696
+gen 30 champion net24x12(relu,lr=0.01,p=0.0)[29f+1s] val AP 0.774 ± 0.064 (held) | net24x12(relu,lr=0.01,p=0.0)[29f+1s]=0.774, net24x12(relu,lr=0.01,p=0.0)[28f+1s]=0.698, net24x12(tanh,lr=0.01,p=0.0)[29f+1s]=0.703, logreg(C=0.1)[29f+0s]=0.756
+| Scorer | PR-AUC | Precision @0.5% | Recall @0.5% |
+|---|---:|---:|---:|
+| evoml | 0.764 | 0.219 | 0.831 |
+| logreg_balanced | 0.770 | 0.222 | 0.845 |
+| random | 0.002 | 0.004 | 0.014 |
+
+Champion: `net24x12(relu,lr=0.01,p=0.0)[29f+1s]` · test rows 54114 · test frauds 71
+Invented genes: `div(V4, V15)`
+AP difference 95% CI: vs random [0.664, 0.843] · vs logreg [-0.071, 0.056]
+Gates: G1_beats_random=PASS, G2_recall_at_budget=PASS, G3_noninferior_to_logreg=PASS, beats_logreg_ci_excludes_zero=FAIL

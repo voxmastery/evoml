@@ -46,8 +46,56 @@ from memescalp.evonet import EvoNet, NetPipeline  # noqa: E402
 ALERT_BUDGET = 0.005          # fixed a priori: flag the top 0.5 % of transactions
 PURGE_FRAC = 0.01             # gap between splits so labels cannot leak across
 MIN_FEATURES = 12
+MAX_SYNTH = 6                 # invented genes per genome
+HALL_SIZE = 5
 SUCCESSION_SE_MULT = 1.0
 BOOT = 200
+UNARY = ("neg", "abs", "sq", "sign")
+BINARY = ("mul", "sub", "div", "max", "min")
+
+
+def eval_synth(expr: list, X: np.ndarray) -> np.ndarray:
+    """Vectorised evaluation of one invented gene over base columns."""
+    op, *args = expr
+    a = X[:, args[0]]
+    if op == "neg":
+        return -a
+    if op == "abs":
+        return np.abs(a)
+    if op == "sq":
+        return a * a
+    if op == "sign":
+        return np.sign(a)
+    b = X[:, args[1]]
+    if op == "mul":
+        return a * b
+    if op == "sub":
+        return a - b
+    if op == "div":
+        return np.clip(a / np.where(np.abs(b) < 1e-3, 1e-3, b), -1e3, 1e3)
+    if op == "max":
+        return np.maximum(a, b)
+    return np.minimum(a, b)
+
+
+def synth_str(expr: list, cols: list[str]) -> str:
+    op, *args = expr
+    return f"{op}({', '.join(cols[i] for i in args)})"
+
+
+def design(g: dict, X: np.ndarray) -> np.ndarray:
+    """Feature chromosome + invented genes -> the matrix a genome actually sees."""
+    parts = [X[:, g["features"]]]
+    for expr in g.get("synth", []):
+        parts.append(eval_synth(expr, X)[:, None].astype(np.float32))
+    return np.hstack(parts) if len(parts) > 1 else parts[0]
+
+
+def invent_gene(rng: random.Random, n_feat: int) -> list:
+    if rng.random() < 0.35:
+        return [rng.choice(UNARY), rng.randrange(n_feat)]
+    i, j = rng.sample(range(n_feat), 2)
+    return [rng.choice(BINARY), i, j]
 
 
 # --- data -----------------------------------------------------------------------
@@ -76,7 +124,7 @@ def splits(n: int) -> tuple[slice, slice, slice]:
 
 def random_genome(rng: random.Random, n_feat: int, kind: str | None = None) -> dict:
     kind = kind or rng.choice(["net", "net", "hgb", "logreg"])
-    g = {"kind": kind, "features": list(range(n_feat))}
+    g = {"kind": kind, "features": list(range(n_feat)), "synth": []}
     if kind == "net":
         g.update(hidden=[rng.choice([16, 24, 32]), rng.choice([8, 12])],
                  act=rng.choice(["tanh", "relu"]), lr=rng.choice([1e-3, 3e-3, 1e-2]),
@@ -91,7 +139,16 @@ def random_genome(rng: random.Random, n_feat: int, kind: str | None = None) -> d
 
 def mutate(g: dict, rng: random.Random, n_feat: int) -> dict:
     g = json.loads(json.dumps(g))
-    op = rng.choice(["hyper", "hyper", "feat", "feat"])
+    g.setdefault("synth", [])
+    op = rng.choice(["hyper", "hyper", "feat", "feat", "invent", "invent", "kill"])
+    if op == "invent":
+        if len(g["synth"]) < MAX_SYNTH:
+            g["synth"].append(invent_gene(rng, n_feat))
+        return g
+    if op == "kill":
+        if g["synth"]:
+            g["synth"].pop(rng.randrange(len(g["synth"])))
+        return g
     if op == "feat":
         feats = set(g["features"])
         if rng.random() < 0.5 and len(feats) > MIN_FEATURES:
@@ -132,16 +189,17 @@ def mutate(g: dict, rng: random.Random, n_feat: int) -> dict:
 
 def label(g: dict) -> str:
     k = g["kind"]
+    tail = f"[{len(g['features'])}f+{len(g.get('synth', []))}s]"
     if k == "net":
-        return f"net{'x'.join(map(str, g['hidden']))}({g['act']},lr={g['lr']:g},p={g['prune']:.1f})[{len(g['features'])}f]"
+        return f"net{'x'.join(map(str, g['hidden']))}({g['act']},lr={g['lr']:g},p={g['prune']:.1f}){tail}"
     if k == "hgb":
-        return f"hgb(d={g['depth']},lr={g['lr']:g},i={g['iters']})[{len(g['features'])}f]"
-    return f"logreg(C={g['C']:g})[{len(g['features'])}f]"
+        return f"hgb(d={g['depth']},lr={g['lr']:g},i={g['iters']}){tail}"
+    return f"logreg(C={g['C']:g}){tail}"
 
 
 def build(g: dict, parent_net: EvoNet | None):
     if g["kind"] == "net":
-        net = EvoNet(len(g["features"]), g["hidden"], act=g["act"], lr=g["lr"], l2=g["l2"],
+        net = EvoNet(len(g["features"]) + len(g.get("synth", [])), g["hidden"], act=g["act"], lr=g["lr"], l2=g["l2"],
                      epochs=g["epochs"], prune=g["prune"], seed=7)
         if parent_net is not None:
             net.inherit(parent_net)
@@ -160,14 +218,14 @@ def balanced_weights(y: np.ndarray) -> np.ndarray:
 
 
 def fit_score(g: dict, X: np.ndarray, y: np.ndarray, Xv: np.ndarray, parent_net: EvoNet | None):
-    cols = g["features"]
     model = build(g, parent_net)
     w = balanced_weights(y)
+    Xd, Xvd = design(g, X), design(g, Xv)
     if g["kind"] == "logreg":
-        model.fit(X[:, cols], y, logisticregression__sample_weight=w)
+        model.fit(Xd, y, logisticregression__sample_weight=w)
     else:
-        model.fit(X[:, cols], y, sample_weight=w)
-    return model, model.predict_proba(Xv[:, cols])[:, 1]
+        model.fit(Xd, y, sample_weight=w)
+    return model, model.predict_proba(Xvd)[:, 1]
 
 
 # --- metrics ----------------------------------------------------------------------
@@ -232,22 +290,33 @@ def main() -> None:
     champ_net = champ_model.net if isinstance(champ_model, NetPipeline) else None
     print(f"gen 0 champion {label(champion)} val AP {champ_ap:.3f} ± {champ_se:.3f}", flush=True)
     journal.append({"generation": 0, "champion": label(champion), "val_ap": champ_ap, "population": {label(champion): champ_ap}})
+    hall: list[tuple[float, dict]] = [(champ_ap, champion)]
+
+    def remember(a: float, g: dict) -> None:
+        if any(json.dumps(g, sort_keys=True) == json.dumps(h, sort_keys=True) for _, h in hall):
+            return
+        hall.append((a, g))
+        hall.sort(key=lambda t: -t[0])
+        del hall[HALL_SIZE:]
 
     for gen in range(1, args.generations + 1):
-        pop = [mutate(champion, rng, X.shape[1]), mutate(champion, rng, X.shape[1]),
-               random_genome(rng, X.shape[1])]
+        immigrant = (mutate(rng.choice(hall)[1], rng, X.shape[1]) if hall and rng.random() < 0.5
+                     else random_genome(rng, X.shape[1]))
+        pop = [mutate(champion, rng, X.shape[1]), mutate(champion, rng, X.shape[1]), immigrant]
         scores = {label(champion): champ_ap}
         best = (champ_ap, champion, champ_model, champ_va, champ_se, champ_net, False)
         for g in pop:
             try:
                 parent = champ_net if (g["kind"] == "net" and champ_net is not None
-                                       and g["features"] == champion["features"]) else None
+                                       and g["features"] == champion["features"]
+                                       and g.get("synth", []) == champion.get("synth", [])) else None
                 model, s_va = fit_score(g, Xtr, ytr, Xva, parent)
             except Exception as exc:  # noqa: BLE001 - a broken genome just loses
                 print(f"  {label(g)} failed: {exc}", flush=True)
                 continue
             a, se = ap_and_se(yva, s_va, nrng)
             scores[label(g)] = a
+            remember(a, g)
             if a > best[0] + SUCCESSION_SE_MULT * max(best[4], se):
                 best = (a, g, model, s_va, se, model.net if isinstance(model, NetPipeline) else None, True)
         dethroned = best[6]
@@ -259,8 +328,7 @@ def main() -> None:
               ", ".join(f"{k}={v:.3f}" for k, v in scores.items()), flush=True)
 
     # Held-out test window, scored once, after evolution is frozen.
-    cols_c = champion["features"]
-    evo_te = champ_model.predict_proba(Xte[:, cols_c])[:, 1]
+    evo_te = champ_model.predict_proba(design(champion, Xte))[:, 1]
     res = {}
     for name, s in (("evoml", evo_te), ("logreg_balanced", base_te), ("random", rand_te)):
         res[name] = {"ap": float(average_precision_score(yte, s)), **at_budget(yte, s, ALERT_BUDGET)}
@@ -276,6 +344,8 @@ def main() -> None:
         "dataset": "openml creditcard (id 1597), time-ordered, purged splits",
         "alert_budget": ALERT_BUDGET, "test_rows": int(len(yte)), "test_frauds": int(yte.sum()),
         "champion": label(champion), "champion_genome": champion,
+        "invented_genes": [synth_str(e, cols) for e in champion.get("synth", [])],
+        "hall_of_fame": [{"val_ap": a, "genome": label(g)} for a, g in hall],
         "results": res,
         "ap_diff_ci95": {"vs_random": [lo_r, hi_r], "vs_logreg": [lo_b, hi_b]},
         "gates": gates, "all_gates_pass": all(v for k, v in gates.items() if k.startswith("G")),
@@ -289,6 +359,8 @@ def main() -> None:
         md.append(f"| {name} | {r['ap']:.3f} | {r['precision']:.3f} | {r['recall']:.3f} |")
     md.append("")
     md.append(f"Champion: `{label(champion)}` · test rows {len(yte)} · test frauds {int(yte.sum())}")
+    if champion.get("synth"):
+        md.append("Invented genes: " + ", ".join(f"`{synth_str(e, cols)}`" for e in champion["synth"]))
     md.append(f"AP difference 95% CI: vs random [{lo_r:.3f}, {hi_r:.3f}] · vs logreg [{lo_b:.3f}, {hi_b:.3f}]")
     md.append("Gates: " + ", ".join(f"{k}={'PASS' if v else 'FAIL'}" for k, v in gates.items()))
     Path(args.out, "fraud_bench.md").write_text("\n".join(md) + "\n")

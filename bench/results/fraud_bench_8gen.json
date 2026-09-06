@@ -1,0 +1,191 @@
+{
+  "dataset": "openml creditcard (id 1597), time-ordered, purged splits",
+  "alert_budget": 0.005,
+  "test_rows": 54114,
+  "test_frauds": 71,
+  "champion": "net24x12(relu,lr=0.01,p=0.0)[29f]",
+  "champion_genome": {
+    "kind": "net",
+    "features": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28
+    ],
+    "hidden": [
+      24,
+      12
+    ],
+    "act": "relu",
+    "lr": 0.01,
+    "l2": 0.001,
+    "epochs": 8,
+    "prune": 0.0
+  },
+  "results": {
+    "evoml": {
+      "ap": 0.7759291796082882,
+      "alerts": 270,
+      "true_positives": 60,
+      "precision": 0.2222222222222222,
+      "recall": 0.8450704225352113
+    },
+    "logreg_balanced": {
+      "ap": 0.7704273194673116,
+      "alerts": 270,
+      "true_positives": 60,
+      "precision": 0.2222222222222222,
+      "recall": 0.8450704225352113
+    },
+    "random": {
+      "ap": 0.0016606300079864788,
+      "alerts": 270,
+      "true_positives": 1,
+      "precision": 0.003703703703703704,
+      "recall": 0.014084507042253521
+    }
+  },
+  "ap_diff_ci95": {
+    "vs_random": [
+      0.6983395923406374,
+      0.8576983107820717
+    ],
+    "vs_logreg": [
+      -0.032152684473700566,
+      0.05209156464916323
+    ]
+  },
+  "gates": {
+    "G1_beats_random": true,
+    "G2_recall_at_budget": true,
+    "G3_noninferior_to_logreg": true,
+    "beats_logreg_ci_excludes_zero": false
+  },
+  "all_gates_pass": true,
+  "journal": [
+    {
+      "generation": 0,
+      "champion": "net24x12(relu,lr=0.01,p=0.0)[29f]",
+      "val_ap": 0.6381638590581318,
+      "population": {
+        "net24x12(relu,lr=0.01,p=0.0)[29f]": 0.6381638590581318
+      }
+    },
+    {
+      "generation": 1,
+      "champion": "net24x12(relu,lr=0.01,p=0.0)[29f]",
+      "val_ap": 0.7467741284781438,
+      "succession": "dethroned",
+      "population": {
+        "net24x12(relu,lr=0.01,p=0.0)[29f]": 0.7467741284781438,
+        "net24x18(relu,lr=0.01,p=0.0)[29f]": 0.7125281528841206,
+        "net16x8(relu,lr=0.003,p=0.2)[29f]": 0.6539307117106141
+      }
+    },
+    {
+      "generation": 2,
+      "champion": "net24x12(relu,lr=0.01,p=0.0)[29f]",
+      "val_ap": 0.7467741284781438,
+      "succession": "held",
+      "population": {
+        "net24x12(relu,lr=0.01,p=0.0)[29f]": 0.747794007597865,
+        "net12x12(relu,lr=0.01,p=0.0)[29f]": 0.7563338049418156,
+        "net24x12(relu,lr=0.01,p=0.2)[29f]": 0.7345957097476137
+      }
+    },
+    {
+      "generation": 3,
+      "champion": "net24x12(relu,lr=0.01,p=0.0)[29f]",
+      "val_ap": 0.7467741284781438,
+      "succession": "held",
+      "population": {
+        "net24x12(relu,lr=0.01,p=0.0)[29f]": 0.7467741284781438,
+        "net24x12(relu,lr=0.01,p=0.0)[28f]": 0.4738917692451278,
+        "net24x12(tanh,lr=0.01,p=0.0)[29f]": 0.7395769369369815,
+        "hgb(d=4,lr=0.05,i=200)[29f]": 0.7168852809113301
+      }
+    },
+    {
+      "generation": 4,
+      "champion": "net24x12(relu,lr=0.01,p=0.0)[29f]",
+      "val_ap": 0.7467741284781438,
+      "succession": "held",
+      "population": {
+        "net24x12(relu,lr=0.01,p=0.0)[29f]": 0.747794007597865,
+        "net24x12(relu,lr=0.01,p=0.0)[28f]": 0.7686976414295027,
+        "net24x8(relu,lr=0.003,p=0.2)[29f]": 0.5743046093397148
+      }
+    },
+    {
+      "generation": 5,
+      "champion": "net24x12(relu,lr=0.01,p=0.0)[29f]",
+      "val_ap": 0.7467741284781438,
+      "succession": "held",
+      "population": {
+        "net24x12(relu,lr=0.01,p=0.0)[29f]": 0.7467741284781438,
+        "net24x12(relu,lr=0.005,p=0.0)[29f]": 0.6713597552441999,
+        "net24x12(tanh,lr=0.01,p=0.0)[29f]": 0.7395769369369815,
+        "logreg(C=1)[29f]": 0.7571283508381862
+      }
+    },
+    {
+      "generation": 6,
+      "champion": "net24x12(relu,lr=0.01,p=0.0)[29f]",
+      "val_ap": 0.7467741284781438,
+      "succession": "held",
+      "population": {
+        "net24x12(relu,lr=0.01,p=0.0)[29f]": 0.4984437260871736,
+        "net24x12(relu,lr=0.01,p=0.0)[28f]": 0.7686976414295027,
+        "hgb(d=3,lr=0.1,i=200)[29f]": 0.7692318828237934
+      }
+    },
+    {
+      "generation": 7,
+      "champion": "net24x12(relu,lr=0.01,p=0.0)[29f]",
+      "val_ap": 0.7467741284781438,
+      "succession": "held",
+      "population": {
+        "net24x12(relu,lr=0.01,p=0.0)[29f]": 0.7467741284781438,
+        "net24x12(tanh,lr=0.01,p=0.0)[29f]": 0.7395769369369815,
+        "net24x12(relu,lr=0.005,p=0.0)[29f]": 0.6713597552441999,
+        "net16x8(relu,lr=0.003,p=0.1)[29f]": 0.5975643182005635
+      }
+    },
+    {
+      "generation": 8,
+      "champion": "net24x12(relu,lr=0.01,p=0.0)[29f]",
+      "val_ap": 0.7467741284781438,
+      "succession": "held",
+      "population": {
+        "net24x12(relu,lr=0.01,p=0.0)[29f]": 0.747794007597865,
+        "logreg(C=0.5)[29f]": 0.757032072970775
+      }
+    }
+  ],
+  "seconds": 89.6
+}

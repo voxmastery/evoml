@@ -86,3 +86,24 @@ gated at one SE, test window scored once after evolution is frozen.
 Champion: `net24x12(relu,lr=0.01,p=0.0)[29f]` · test rows 54114 · test frauds 71
 AP difference 95% CI: vs random [0.698, 0.858] · vs logreg [-0.032, 0.052]
 Gates: G1_beats_random=PASS, G2_recall_at_budget=PASS, G3_noninferior_to_logreg=PASS, beats_logreg_ci_excludes_zero=FAIL
+
+### Longer run: 30 generations, invented genes, hall of fame
+
+| Scorer | PR-AUC | Precision @0.5% | Recall @0.5% |
+|---|---:|---:|---:|
+| evoml | 0.764 | 0.219 | 0.831 |
+| logreg_balanced | 0.770 | 0.222 | 0.845 |
+| random | 0.002 | 0.004 | 0.014 |
+
+Champion: `net24x12(relu,lr=0.01,p=0.0)[29f+1s]` · test rows 54114 · test frauds 71
+Invented genes: `div(V4, V15)`
+AP difference 95% CI: vs random [0.664, 0.843] · vs logreg [-0.071, 0.056]
+Gates: G1_beats_random=PASS, G2_recall_at_budget=PASS, G3_noninferior_to_logreg=PASS, beats_logreg_ci_excludes_zero=FAIL
+
+Reading: the invented gene raised validation PR-AUC (0.747 → 0.774) but the
+test score (0.764) sits inside the noise of the shorter run (0.776). With 71
+frauds in the test window the PR-AUC has a standard error near 0.06, so
+neither run can be called better than the other, or than the logistic
+baseline. What the run demonstrates is the mechanism working end to end on
+fintech data: invention, gated succession, a hall of fame, and an honest
+held-out score.
