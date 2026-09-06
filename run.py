@@ -6,6 +6,7 @@ Usage: python run.py
 from __future__ import annotations
 
 import asyncio
+import os
 import logging
 import time
 
@@ -439,7 +440,8 @@ async def main() -> None:
 
     app = create_app(settings, db, feed, arms, controller)
     server = uvicorn.Server(uvicorn.Config(
-        app, host="127.0.0.1", port=settings.dash_port, log_level="warning"
+        app, host=os.environ.get("DASH_HOST", "127.0.0.1"),
+        port=settings.dash_port, log_level="warning"
     ))
     log.info("dashboard: http://127.0.0.1:%d", settings.dash_port)
 
