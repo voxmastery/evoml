@@ -10,6 +10,7 @@ public with an append-only audit trail. Runs on a laptop CPU. No AI API key.
 The neural network is written from first principles in NumPy.
 
 [Live site + growth visualisation](https://evoml-lab.higgsfield.app) ·
+[Live dashboard (raw, on EC2)](http://65.2.213.196:8765) ·
 [5-minute pitch video](https://cdn.pika.art/v2/files/agent/3d269d9f-8218-41c2-b660-99e4731710ba/output.mp4) ·
 [Results](docs/RESULTS.md) · [Architecture](docs/ARCHITECTURE.md) ·
 [How evolution works](docs/EVOLUTION.md) · [Submission](docs/SUBMISSION.md)
@@ -142,7 +143,7 @@ python run.py                              # dashboard at http://127.0.0.1:8765
 pytest                                     # 103 tests, including gradient checks
 ```
 
-Run it as a service with `deploy/evoml.service`. To stream the model's live
+The public instance runs on an AWS EC2 box in Mumbai (`http://65.2.213.196:8765`) under the units in `deploy/`; it feeds the live site every 20 s. Run your own copy as a service with `deploy/evoml.service`. To stream the model's live
 state to a public page, see `deploy/evoml-push.service` and
 `tools/push_snapshot.py`.
 
