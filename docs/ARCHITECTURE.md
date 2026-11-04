@@ -1,5 +1,16 @@
 # Architecture
 
+The evolution loop is a domain-agnostic core in `evoml/core`: a `Genome`,
+an `Evaluator` that returns a mean and a standard error, an `Arena`
+(champion, two mutants, one fresh challenger, a control scored on the same
+outcomes, promotion only past one standard error, cooldown, blacklist), and
+an append-only SQLite `AuditLog`. An optional memory hook writes decisions
+to FluctlightDB (`experience`, `recall`, `verified=True`); the default hook
+does nothing. The live forecaster and the fraud bench are adapters on that
+core. `evoml/domains/seo_pages` is a second adapter: page recipes scored on
+Search Console, engagement and booking signals, with the scoring policy
+itself evolved by the same arena. See the README for the SEO quickstart.
+
 One Python process (`run.py`) runs four asyncio loops and a FastAPI app.
 
 | Loop | Module | Cadence | Notes |

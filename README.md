@@ -18,7 +18,7 @@ problem it is meant for). Runs on a laptop CPU. No AI API key.
 [Results](docs/RESULTS.md) · [Architecture](docs/ARCHITECTURE.md) ·
 [How evolution works](docs/EVOLUTION.md) · [Submission](docs/SUBMISSION.md)
 
-![tests](https://img.shields.io/badge/tests-103%20passing-9ff0c4) ![python](https://img.shields.io/badge/python-3.12-blue) ![license](https://img.shields.io/badge/license-MIT-lightgrey) ![mode](https://img.shields.io/badge/mode-measurement--only-orange)
+![tests](https://img.shields.io/badge/tests-131%20passing-9ff0c4) ![python](https://img.shields.io/badge/python-3.12-blue) ![license](https://img.shields.io/badge/license-MIT-lightgrey) ![mode](https://img.shields.io/badge/mode-measurement--only-orange)
 
 </div>
 
@@ -34,12 +34,13 @@ problem it is meant for). Runs on a laptop CPU. No AI API key.
 2. [What is new](#what-is-new)
 3. [How it works](#how-it-works)
 4. [Quick start](#quick-start)
-5. [Repository layout](#repository-layout)
-6. [Verify the numbers yourself](#verify-the-numbers-yourself)
-7. [Honest caveats](#honest-caveats)
-8. [Why this matters for fintech](#why-this-matters-for-fintech)
-9. [Roadmap](#roadmap)
-10. [License](#license)
+5. [A general evolution engine](#a-general-evolution-engine)
+6. [Repository layout](#repository-layout)
+7. [Verify the numbers yourself](#verify-the-numbers-yourself)
+8. [Honest caveats](#honest-caveats)
+9. [Why this matters for fintech](#why-this-matters-for-fintech)
+10. [Roadmap](#roadmap)
+11. [License](#license)
 
 ---
 
@@ -191,7 +192,7 @@ pip install -r requirements.txt            # core
 pip install -r requirements-tsfm.txt       # optional: Chronos-Bolt on CPU
 cp .env.example .env                       # MODE=predict, LLM_ARM=off; add JUPITER_API_KEY
 python run.py                              # dashboard at http://127.0.0.1:8765
-pytest                                     # 103 tests, including gradient checks
+pytest                                     # 131 tests, including gradient checks
 ```
 
 The public instance runs on an AWS EC2 box in Mumbai (`http://65.2.213.196:8765`) under the units in `deploy/`; it feeds the live site every 20 s. Run your own copy as a service with `deploy/evoml.service`. To stream the model's live
@@ -203,12 +204,119 @@ No Anthropic or OpenAI key is required. An optional Claude arm exists
 default; it was the original subject of the harness and is kept for
 comparison.
 
+## A general evolution engine
+
+The crypto loop and the fraud bench are adapters. The loop itself lives in
+`evoml/core` and has no prices, fraud labels or page fields in it.
+
+| Piece | What it does |
+|---|---|
+| Genome | `mutate`, `random`, optional `crossover`, `serialize` |
+| Evaluator | score one or more genomes on observed outcomes; return a mean and its standard error |
+| Arena | champion, two mutated variants, one fresh challenger, and a control scored on the same outcomes. A challenger is promoted only when its margin beats one standard error. The scheduler also carries a cooldown and a blacklist |
+| Audit log | append-only SQLite. The schema rejects `UPDATE` and `DELETE` |
+| Memory | optional. The default hook stores nothing. With [FluctlightDB](https://github.com/voxmastery/FluctlightDB) installed, outcomes and decisions are written with `experience(..., verified=True)` and read back with `recall()` |
+
+Succession in the live forecaster and in `bench/fraud_bench.py` goes through
+this arena. The forecaster still uses its shared holdout floor
+(`sqrt(0.25 / n)`); the fraud bench still uses the larger of the two
+bootstrap standard errors. Both are the same one-standard-error rule, with
+the standard error defined the way each bench already defined it.
+
+### SEO landing pages
+
+`evoml/domains/seo_pages` is the first adapter that is not a predictor. The
+genome is a landing-page recipe for a site such as nammaambulance.in:
+
+- section order and set: hero, fare table, route map, FAQ, hospital info,
+  how to book, trust signals, plus section types the recipe invents
+- target word count and FAQ count
+- title and meta templates
+- internal-link strategy (`hub`, `sibling`, `hospital`, `sparse`)
+- CTA placement (`hero`, `mid`, `end`, `sticky`)
+- schema.org types (`MedicalBusiness`, `FAQPage`, `Service`,
+  `BreadcrumbList`, `Hospital`)
+
+Invented genes follow the forecaster. A report correlates each observed
+signal with later booking starts, and `invent_gene` either adds a section
+type named for a strong signal or a small expression over the signals.
+
+Outcomes are loaded from local CSV or JSON. A row can carry Search Console
+fields (clicks, impressions, CTR, average position and its delta),
+engagement (scroll depth, a heatmap zone, time on page) and booking starts.
+The loaders do not open network connections. Pages are the unit: a recipe
+is assigned to a cohort of pages, and pages left unassigned are the control
+group, scored on the same window. Windows are 14, 21 or 28 days, because
+SEO moves slowly. The score is a weighted composite of the scaled metrics.
+A recipe whose pages spike on 404s, deindexing or noindex, relative to the
+control pages in that window, is blacklisted and cannot be promoted.
+
+The same arena then tunes the adapter. Score weights, window length,
+mutation rate, cohort size and the promotion threshold are a meta-genome.
+It is replayed over past assignments: at each decision day it may promote
+a recipe only when the margin beats its own threshold, and it is judged on
+that recipe's later booking starts (a fixed payoff, independent of the
+weights being tuned). The untouched pages over those same payoff windows
+are the control. A meta-genome that crowns a recipe which then hits a 404,
+deindex or noindex spike is blacklisted.
+
+```bash
+python -m evoml.domains.seo_pages --generations 6 --seed 0
+```
+
+The command runs both arenas on a built-in simulator and prints the
+journal for that seed. Those lines are simulator output. They are not
+Search Console measurements, and they are not a benchmark.
+
+```python
+from evoml.domains.seo_pages import PageRecipe, load_csv
+from evoml.domains.seo_pages.evaluator import PageEvaluator
+
+rows = load_csv("page_signals.csv")    # a local export
+champion = PageRecipe.weak()
+champion.cohort_id = "fare-v1"         # matches the group column for this cohort
+evaluator = PageEvaluator(
+    weights={
+        "ctr": 0.20,
+        "position_gain": 0.15,
+        "scroll_depth": 0.10,
+        "heatmap_cta": 0.10,
+        "time_on_page": 0.10,
+        "booking_starts": 0.35,
+    },
+    cohort_size=12,
+    observations=rows,
+    window=(0, 28),
+)
+scores = evaluator.score([champion])
+```
+
+To remember measured decisions, install FluctlightDB and pass a memory
+hook. `verified=True` belongs on rows that came from an export. The
+simulator leaves it false. Without the package, the hook is a no-op.
+
+```bash
+pip install fluctlightdb
+```
+
+```python
+from evoml.core import FluctlightMemory
+from evoml.domains.seo_pages import SEOExperiment
+
+SEOExperiment(memory=FluctlightMemory("./seo-brain"), verified=True)
+```
+
 ## Repository layout
 
 ```
 run.py                     process entry: predict / resolve / retrain loops + dashboard
+evoml/                     domain-agnostic evolution engine
+  core/                    Genome, Evaluator, Arena, append-only audit, memory hook
+  domains/prediction.py    crypto-direction adapter; succession for the live forecaster
+  domains/fraud.py         fraud-bench adapter; the same one-SE gate
+  domains/seo_pages/       landing-page recipes, CSV/JSON signals, meta-genome
 memescalp/                 package (name kept from the original scalping harness)
-  mlpred.py                EvoML: genome, mutation, invented genes, tournament, hall of fame
+  mlpred.py                forecaster genome, invented genes, tournament, hall of fame
   evonet.py                from-scratch NumPy network with inheritance and gradient checks
   hedgepred.py             regime-conditioned multiplicative-weights hedge (6 experts)
   mathpred.py              classic OU z-score / variance-ratio / EMA arm
@@ -221,7 +329,7 @@ memescalp/                 package (name kept from the original scalping harness
   llm.py, picker.py, …     optional Claude arm and the legacy paper-trading simulator
 tools/push_snapshot.py     live snapshot pusher for the public site
 bench/fraud_bench.py       second bench: the same loop on public credit-card fraud data
-tests/                     103 tests (pytest)
+tests/                     131 tests (pytest)
 docs/                      results, architecture, evolution, submission, strategy
 deploy/                    systemd user units
 ```

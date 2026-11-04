@@ -42,6 +42,7 @@ from sklearn.preprocessing import StandardScaler
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from memescalp.evonet import EvoNet, NetPipeline  # noqa: E402
+from evoml.domains.fraud import consider_succession  # noqa: E402
 
 ALERT_BUDGET = 0.005          # fixed a priori: flag the top 0.5 % of transactions
 PURGE_FRAC = 0.01             # gap between splits so labels cannot leak across
@@ -317,7 +318,9 @@ def main() -> None:
             a, se = ap_and_se(yva, s_va, nrng)
             scores[label(g)] = a
             remember(a, g)
-            if a > best[0] + SUCCESSION_SE_MULT * max(best[4], se):
+            # Same gate as before: margin must clear the larger of the two
+            # bootstrap standard errors. The comparison lives in the core.
+            if consider_succession(best[0], best[4], a, se, se_mult=SUCCESSION_SE_MULT):
                 best = (a, g, model, s_va, se, model.net if isinstance(model, NetPipeline) else None, True)
         dethroned = best[6]
         champ_ap, champion, champ_model, champ_va, champ_se, champ_net, _ = best

@@ -775,15 +775,19 @@ class MLForecaster:
         seen: set[str] = set()
         candidates: dict[str, tuple] = {}
         genomes: dict[str, dict] = {}
-        for g in population:
+        roles: dict[str, str] = {}
+        for i, g in enumerate(population):
             key = json.dumps(g, sort_keys=True)
             if key in seen:
                 continue
             seen.add(key)
             label = genome_label(g)
+            # Champion, two mutants, one immigrant, then growth children.
+            role = ("champion", "variant", "variant", "challenger")[i] if i < 4 else "extra"
             pipe, wkey = genome_to_pipeline(g)
             candidates[label] = (pipe, wkey)
             genomes[label] = g
+            roles[label] = role
         scores: dict[str, float] = {}
         fitted: dict[str, tuple] = {}
         fam_mu, fam_sd = fit_familiarity(Xf)
@@ -865,20 +869,15 @@ class MLForecaster:
         if not scores:
             return result
 
-        # Significance-gated succession: a challenger must beat the incumbent
-        # by more than the holdout's noise floor, or incumbency holds.
-        champion = max(scores, key=scores.get)
+        # Significance-gated succession lives in the domain-agnostic arena.
+        # The noise floor is unchanged: one binomial SE of the holdout
+        # (SUCCESSION_SE_MULT * sqrt(0.25 / n)), shared by every candidate.
         incumbent = genome_label(champion_genome)
-        succession = "new lineage"
         noise = SUCCESSION_SE_MULT * math.sqrt(0.25 / max(1, len(Xh)))
-        if incumbent in scores and champion != incumbent:
-            if scores[champion] - scores[incumbent] <= noise:
-                champion = incumbent
-                succession = "held (challenger within noise)"
-            else:
-                succession = "dethroned"
-        elif champion == incumbent:
-            succession = "held"
+        from evoml.domains.prediction import select_champion
+        champion, succession = select_champion(
+            scores, roles, incumbent if incumbent in scores else None, noise,
+        )
         # Growth bias: a bigger body that is not measurably worse than the
         # incumbent takes over, so capacity ratchets upward with evidence
         # that it did no harm, and comes down only when smaller is better.
