@@ -11,6 +11,7 @@ from pathlib import Path
 
 from evoml.core.arena import Arena, Contender, Decision
 from evoml.core.audit import AuditLog
+from evoml.core.evaluator import Score
 from evoml.core.memory import MemoryHook, NullMemory
 
 from .evaluator import PageEvaluator, RecipeSimulator
@@ -66,9 +67,23 @@ class SEOExperiment:
         )
         self.journal: list[Decision] = []
 
-    def run(self, generations: int | None = None) -> list[Decision]:
+    def run(
+        self,
+        generations: int | None = None,
+        extras: list[PageRecipe] | None = None,
+        *,
+        generation_offset: int = 0,
+        disqualify=None,
+    ) -> list[Decision]:
+        """Run generations.
+
+        `extras` are planner proposals. They join the first generation as
+        additional contenders. The arena still decides promotion. With
+        `extras` omitted the population is the champion, two mutants, one
+        fresh recipe and the control, as before.
+        """
         rng = random.Random(self.seed)
-        report = _signal_report(self.simulator, self.cohort_size)
+        report = _signal_report(self.simulator, self.cohort_size) if self.simulator else {}
         n = self.generations if generations is None else generations
         self.journal = []
         for generation in range(1, n + 1):
@@ -78,21 +93,25 @@ class SEOExperiment:
             ]
             challenger = PageRecipe.random(rng)
             control = PageRecipe.control()
+            proposed = list(extras or []) if generation == 1 else []
             contenders = _dedupe(
                 [
                     Contender(self.champion.key(), "champion", self.champion),
                     *[Contender(variant.key(), "variant", variant) for variant in variants],
                     Contender(challenger.key(), "challenger", challenger),
+                    *[Contender(extra.key(), "extra", extra) for extra in proposed],
                     Contender("control", "control", control),
                 ]
             )
             scores = self.evaluator.score(
                 [c.genome for c in contenders if c.role != "control"]
             )
+            if disqualify is not None:
+                scores = _apply_disqualify(contenders, scores, disqualify)
             decision = self.arena.decide(
                 contenders,
                 scores,
-                generation=generation,
+                generation=generation_offset + generation,
                 incumbent_key=self.champion.key(),
             )
             winner = next(
@@ -109,6 +128,24 @@ class SEOExperiment:
                 self.champion = winner
             self.journal.append(decision)
         return self.journal
+
+
+def _apply_disqualify(contenders, scores: dict, disqualify) -> dict:
+    """Hard constraints (budget blacklist) veto a score the evaluator produced."""
+    updated = dict(scores)
+    for contender in contenders:
+        if contender.role == "control" or contender.key not in updated:
+            continue
+        reason = disqualify(contender.genome)
+        if not reason:
+            continue
+        current = updated[contender.key]
+        detail = dict(current.detail)
+        detail["guardrail"] = reason
+        updated[contender.key] = Score(
+            current.mean, current.se, current.n, True, detail
+        )
+    return updated
 
 
 def _dedupe(contenders: list[Contender]) -> list[Contender]:

@@ -18,7 +18,7 @@ problem it is meant for). Runs on a laptop CPU. No AI API key.
 [Results](docs/RESULTS.md) · [Architecture](docs/ARCHITECTURE.md) ·
 [How evolution works](docs/EVOLUTION.md) · [Submission](docs/SUBMISSION.md)
 
-![tests](https://img.shields.io/badge/tests-131%20passing-9ff0c4) ![python](https://img.shields.io/badge/python-3.12-blue) ![license](https://img.shields.io/badge/license-MIT-lightgrey) ![mode](https://img.shields.io/badge/mode-measurement--only-orange)
+![tests](https://img.shields.io/badge/tests-140%20passing-9ff0c4) ![python](https://img.shields.io/badge/python-3.12-blue) ![license](https://img.shields.io/badge/license-MIT-lightgrey) ![mode](https://img.shields.io/badge/mode-measurement--only-orange)
 
 </div>
 
@@ -192,7 +192,7 @@ pip install -r requirements.txt            # core
 pip install -r requirements-tsfm.txt       # optional: Chronos-Bolt on CPU
 cp .env.example .env                       # MODE=predict, LLM_ARM=off; add JUPITER_API_KEY
 python run.py                              # dashboard at http://127.0.0.1:8765
-pytest                                     # 131 tests, including gradient checks
+pytest                                     # 140 tests, including gradient checks
 ```
 
 The public instance runs on an AWS EC2 box in Mumbai (`http://65.2.213.196:8765`) under the units in `deploy/`; it feeds the live site every 20 s. Run your own copy as a service with `deploy/evoml.service`. To stream the model's live
@@ -306,6 +306,22 @@ from evoml.domains.seo_pages import SEOExperiment
 SEOExperiment(memory=FluctlightMemory("./seo-brain"), verified=True)
 ```
 
+### Agentic learning
+
+`evoml/agentic` sets a goal, recalls what was tried, asks a planner for
+hypotheses, and lets the arena accept or reject them. The actuator renders
+static HTML and does not deploy. Dry-run is the default. The definition,
+the guardrails, and the roadmap are in
+[docs/AGENTIC_LEARNING.md](docs/AGENTIC_LEARNING.md).
+
+```bash
+python evoml-agent run --domain seo_pages --config evoml/agentic/example_config.json
+python evoml-agent ablate --out out/ablation --seed 0 --cycles 2
+```
+
+The ablation command writes `ablation.csv` and `ablation.md` from that
+run. Those files are simulated. They are not a Search Console result.
+
 ## Repository layout
 
 ```
@@ -315,6 +331,8 @@ evoml/                     domain-agnostic evolution engine
   domains/prediction.py    crypto-direction adapter; succession for the live forecaster
   domains/fraud.py         fraud-bench adapter; the same one-SE gate
   domains/seo_pages/       landing-page recipes, CSV/JSON signals, meta-genome
+  agentic/                 goals, planner, actuator, sensor, causal memory, one-cycle CLI
+evoml-agent                `run` one cycle, or `ablate` on the simulator
 memescalp/                 package (name kept from the original scalping harness)
   mlpred.py                forecaster genome, invented genes, tournament, hall of fame
   evonet.py                from-scratch NumPy network with inheritance and gradient checks
@@ -329,7 +347,7 @@ memescalp/                 package (name kept from the original scalping harness
   llm.py, picker.py, …     optional Claude arm and the legacy paper-trading simulator
 tools/push_snapshot.py     live snapshot pusher for the public site
 bench/fraud_bench.py       second bench: the same loop on public credit-card fraud data
-tests/                     131 tests (pytest)
+tests/                     140 tests (pytest)
 docs/                      results, architecture, evolution, submission, strategy
 deploy/                    systemd user units
 ```

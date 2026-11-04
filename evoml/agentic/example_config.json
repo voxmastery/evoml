@@ -1,0 +1,19 @@
+{
+  "domain": "seo_pages",
+  "seed": 0,
+  "dry_run": true,
+  "planner": "stub",
+  "metric": "booking_starts",
+  "direction": "maximize",
+  "max_pages_changed": 8,
+  "cooldown_generations": 0,
+  "blacklist": [],
+  "output_dir": "out/seo-dry-run",
+  "audit_path": "out/seo-dry-run/audit.db",
+  "memory": "none",
+  "meta": true,
+  "signals": "simulator",
+  "cohort_size": 8,
+  "generations": 1,
+  "pages": ["NA-00001", "NA-00002", "NA-00003", "NA-00004"]
+}
